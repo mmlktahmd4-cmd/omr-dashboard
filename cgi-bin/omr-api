@@ -142,8 +142,16 @@ config_json() {
   _avail=$(sysctl -n net.mptcp.available_schedulers 2>/dev/null | tr ' ' ',')
   _ka=$(uci -q get glorytun-udp.vpn.keepalive)
   _ft=$(uci -q get omr-tracker.defaults.failure_interval)
-  _lan=$(uci -q get network.lan.ipaddr)
-  _mask=$(uci -q get network.lan.netmask)
+  _lan_ip=$(uci -q get network.lan.ipaddr)
+  _lan_mask=$(uci -q get network.lan.netmask); [ -z "$_lan_mask" ] && _lan_mask=255.255.255.0
+  _lan_proto=$(uci -q get network.lan.proto); [ -z "$_lan_proto" ] && _lan_proto=static
+  _lan_gw=$(uci -q get network.lan.gateway)
+  _lan_dev=$(uci -q get network.lan.device); [ -z "$_lan_dev" ] && _lan_dev=br-lan
+  _dhcp_ignore=$(uci -q get dhcp.lan.ignore); [ -z "$_dhcp_ignore" ] && _dhcp_ignore=0
+  _dhcp_start=$(uci -q get dhcp.lan.start); [ -z "$_dhcp_start" ] && _dhcp_start=100
+  _dhcp_limit=$(uci -q get dhcp.lan.limit); [ -z "$_dhcp_limit" ] && _dhcp_limit=150
+  _dhcp_leasetime=$(uci -q get dhcp.lan.leasetime); [ -z "$_dhcp_leasetime" ] && _dhcp_leasetime=12h
+  _lan_dhcp_server=true; [ "$_dhcp_ignore" = "1" ] && _lan_dhcp_server=false
 
   _devs=""
   for d in $(ls /sys/class/net 2>/dev/null); do
@@ -161,12 +169,12 @@ config_json() {
     _mp=$(uci -q get network."$w".multipath)
     _auto=$(uci -q get network."$w".auto); [ -z "$_auto" ] && _auto=1
     _ip=$(uci -q get network."$w".ipaddr)
-    _mask=$(uci -q get network."$w".netmask)
+    _wmask=$(uci -q get network."$w".netmask)
     _gw=$(uci -q get network."$w".gateway)
     _dns=$(uci -q get network."$w".dns | tr '\n' ' ')
     _user=$(uci -q get network."$w".username)
     [ -n "$_wj" ] && _wj="$_wj,"
-    _wj="$_wj{\"name\":\"$w\",\"dev\":\"$_dev\",\"proto\":\"$_proto\",\"multipath\":\"$_mp\",\"auto\":\"$_auto\",\"ip\":\"$_ip\",\"netmask\":\"$_mask\",\"gateway\":\"$_gw\",\"dns\":\"$_dns\",\"username\":\"$_user\"}"
+    _wj="$_wj{\"name\":\"$w\",\"dev\":\"$_dev\",\"proto\":\"$_proto\",\"multipath\":\"$_mp\",\"auto\":\"$_auto\",\"ip\":\"$_ip\",\"netmask\":\"$_wmask\",\"gateway\":\"$_gw\",\"dns\":\"$_dns\",\"username\":\"$_user\"}"
   done
 
   printf '{'
@@ -174,7 +182,9 @@ config_json() {
   printf '"server":{"ip":"%s","username":"%s","port":"%s","token_set":%s},' \
     "$_vip" "$_vuser" "$_vport" "$([ -n "$_vtok" ] && echo true || echo false)"
   printf '"settings":{"vpn":"%s","proxy":"%s","master":"%s","lan_ip":"%s","lan_mask":"%s","bond_profile":"%s","mptcp_scheduler":"%s","mptcp_live":"%s","mptcp_available":"%s","keepalive":"%s","tracker_fail_interval":"%s"},' \
-    "$_vpn" "$_proxy" "$_master" "$_lan" "$_mask" "$_profile" "$_sched" "$_sched_live" "$_avail" "$_ka" "$_ft"
+    "$_vpn" "$_proxy" "$_master" "$_lan_ip" "$_lan_mask" "$_profile" "$_sched" "$_sched_live" "$_avail" "$_ka" "$_ft"
+  printf '"lan":{"proto":"%s","ip":"%s","netmask":"%s","gateway":"%s","device":"%s","dhcp_server":%s,"dhcp_start":"%s","dhcp_limit":"%s","dhcp_leasetime":"%s"},' \
+    "$_lan_proto" "$_lan_ip" "$_lan_mask" "$_lan_gw" "$_lan_dev" "$_lan_dhcp_server" "$_dhcp_start" "$_dhcp_limit" "$_dhcp_leasetime"
   printf '"devices":[%s],' "$_devs"
   printf '"wans":[%s]' "$_wj"
   printf '}'
@@ -380,6 +390,54 @@ set_wan() {
   ok_json setwan ',"i":"'"$I"'","dev":"'"$DEV"'","proto":"'"$PROTO"'","multipath":"'"$MP"'"'
 }
 
+# ---------- LAN (exit / client side) ----------
+set_lan() {
+  PROTO=$(qget proto); [ -z "$PROTO" ] && PROTO=static
+  IP=$(qget ip)
+  MASK=$(qget netmask); [ -z "$MASK" ] && MASK=255.255.255.0
+  GW=$(qget gateway)
+  DHCP_SRV=$(qget dhcp_server)
+  DHCP_START=$(qget dhcp_start)
+  DHCP_LIMIT=$(qget dhcp_limit)
+  DHCP_LEASE=$(qget dhcp_leasetime)
+
+  case "$PROTO" in
+    dhcp)
+      uci set network.lan.proto='dhcp'
+      uci -q delete network.lan.ipaddr || true
+      uci -q delete network.lan.netmask || true
+      uci -q delete network.lan.gateway || true
+      ;;
+    static|*)
+      PROTO=static
+      case "$IP" in
+        *.*.*.*) : ;;
+        *) printf '{"ok":false,"error":"invalid lan ip"}'; return ;;
+      esac
+      uci set network.lan.proto='static'
+      uci set network.lan.ipaddr="$IP"
+      uci set network.lan.netmask="$MASK"
+      if [ -n "$GW" ]; then uci set network.lan.gateway="$GW"
+      else uci -q delete network.lan.gateway || true; fi
+      ;;
+  esac
+
+  # DHCP server for LAN clients (dnsmasq) — independent of lan.proto
+  if [ "$DHCP_SRV" = "0" ] || [ "$DHCP_SRV" = "false" ] || [ "$DHCP_SRV" = "off" ]; then
+    uci set dhcp.lan.ignore='1'
+  else
+    uci -q delete dhcp.lan.ignore || true
+    [ -n "$DHCP_START" ] && uci set dhcp.lan.start="$DHCP_START"
+    [ -n "$DHCP_LIMIT" ] && uci set dhcp.lan.limit="$DHCP_LIMIT"
+    [ -n "$DHCP_LEASE" ] && uci set dhcp.lan.leasetime="$DHCP_LEASE"
+  fi
+
+  uci commit network
+  uci commit dhcp
+  (sleep 1; /etc/init.d/network restart; /etc/init.d/dnsmasq restart) >/dev/null 2>&1 &
+  ok_json setlan ',"proto":"'"$PROTO"'","ip":"'"$IP"'","lan_changed":1'
+}
+
 # ---------- settings ----------
 set_settings() {
   VPN=$(qget vpn)
@@ -392,7 +450,11 @@ set_settings() {
   LAN_CHANGED=0
   if [ -n "$LANIP" ]; then
     case "$LANIP" in
-      *.*.*.*) uci set network.lan.ipaddr="$LANIP"; LAN_CHANGED=1 ;;
+      *.*.*.*)
+        uci set network.lan.proto='static'
+        uci set network.lan.ipaddr="$LANIP"
+        LAN_CHANGED=1
+        ;;
     esac
   fi
   uci commit openmptcprouter
@@ -428,6 +490,7 @@ case "$A" in
   setserver)  set_server ;;
   setwan)     set_wan ;;
   setsettings) set_settings ;;
+  setlan)     set_lan ;;
   setbond)    set_bond ;;
   status|*)   status_json ;;
 esac

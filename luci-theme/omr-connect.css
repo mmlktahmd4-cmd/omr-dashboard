@@ -1,33 +1,41 @@
-/* OMR Connect — classic admin panel look */
+/* OMR Connect — professional admin look across all LuCI pages */
 :root{
-  --bg:#eef1f4;
+  --bg:#e8edf3;
   --panel:#fff;
-  --line:#cfd6de;
-  --line2:#e4e8ee;
-  --txt:#1f2a37;
-  --mut:#5b6b7c;
-  --head:#1e3a5f;
-  --accent:#2f6fed;
-  --accent2:#2459c4;
-  --ok:#1f9d55;
-  --warn:#c9891a;
-  --bad:#d64545;
-  --okbg:#e8f7ee;
-  --warnbg:#fff6e5;
-  --badbg:#fdecec;
-  --radius:6px;
+  --line:#c5ced8;
+  --line2:#e2e8ef;
+  --txt:#1a2433;
+  --mut:#5a6b7d;
+  --head:#163a5f;
+  --head2:#0f2a45;
+  --accent:#2a66e0;
+  --accent2:#1f52b8;
+  --ok:#1b8f4e;
+  --warn:#b87a12;
+  --bad:#c93b3b;
+  --okbg:#e7f6ed;
+  --warnbg:#fff7e8;
+  --badbg:#fdeeee;
+  --radius:8px;
+  --shadow:0 1px 2px rgba(16,36,64,.06);
 }
+
 body.omr-connect{
-  background:var(--bg) !important;
+  background:
+    radial-gradient(900px 420px at 100% -10%, rgba(42,102,224,.08), transparent 55%),
+    radial-gradient(700px 360px at 0% 0%, rgba(22,58,95,.06), transparent 50%),
+    var(--bg) !important;
   color:var(--txt) !important;
   font-family:Tahoma,"Segoe UI",Arial,sans-serif !important;
   font-size:13px !important;
 }
+
+/* Header */
 body.omr-connect header,
 body.omr-connect header .fill{
-  background:var(--head) !important;
+  background:linear-gradient(180deg, var(--head) 0%, var(--head2) 100%) !important;
   border-bottom:0 !important;
-  box-shadow:0 1px 0 rgba(0,0,0,.15) !important;
+  box-shadow:0 2px 8px rgba(10,30,55,.25) !important;
 }
 body.omr-connect header .brand{
   color:#fff !important;
@@ -36,42 +44,268 @@ body.omr-connect header .brand{
   display:inline-flex !important;
   align-items:center !important;
   gap:8px !important;
+  letter-spacing:.2px;
 }
 body.omr-connect .brand-mark{
-  width:26px;height:26px;border-radius:4px;
+  width:26px;height:26px;border-radius:6px;
   background:#fff;color:var(--head);display:inline-grid;place-items:center;
   font-size:10px;font-weight:800;
+  box-shadow:0 1px 0 rgba(0,0,0,.12);
 }
 body.omr-connect header .nav > li > a,
-body.omr-connect #indicators, body.omr-connect #indicators *{ color:#d7e2f0 !important; }
+body.omr-connect #indicators, body.omr-connect #indicators *{ color:#d5e3f4 !important; }
 body.omr-connect header .nav > li > a:hover,
 body.omr-connect header .nav > li.active > a{
-  color:#fff !important; background:rgba(255,255,255,.12) !important; border-radius:4px !important;
+  color:#fff !important; background:rgba(255,255,255,.12) !important; border-radius:6px !important;
 }
-body.omr-connect #maincontent.container{ max-width:1080px !important; padding:14px 12px 36px !important; }
-body.omr-connect .cbi-map, body.omr-connect .cbi-section, body.omr-connect fieldset,
-body.omr-connect table, body.omr-connect .table{
-  background:var(--panel) !important; border:1px solid var(--line) !important;
-  border-radius:var(--radius) !important; color:var(--txt) !important; box-shadow:none !important;
+
+body.omr-connect #maincontent.container{
+  max-width:1120px !important;
+  padding:16px 14px 40px !important;
 }
-body.omr-connect h2, body.omr-connect h3, body.omr-connect h4, body.omr-connect legend,
+
+/* Page titles (Wizard, Settings, Network, …) */
+body.omr-connect #maincontent > h2,
+body.omr-connect .cbi-map-descr + h2,
+body.omr-connect h2{
+  font-size:20px !important;
+  font-weight:800 !important;
+  color:var(--head) !important;
+  margin:4px 0 14px !important;
+  letter-spacing:-.2px;
+}
+
+/* CBI maps / sections — Wizard & advanced pages */
+body.omr-connect .cbi-map,
+body.omr-connect .cbi-section,
+body.omr-connect fieldset,
+body.omr-connect .panel-container,
+body.omr-connect table.cbi-section-table,
+body.omr-connect .table{
+  background:var(--panel) !important;
+  border:1px solid var(--line) !important;
+  border-radius:var(--radius) !important;
+  color:var(--txt) !important;
+  box-shadow:var(--shadow) !important;
+  overflow:hidden;
+}
+body.omr-connect .cbi-map{ padding:0 !important; margin:0 0 14px !important; }
+body.omr-connect .cbi-map > h3,
+body.omr-connect .cbi-section > legend,
+body.omr-connect .cbi-section-node > h3,
+body.omr-connect fieldset > legend{
+  display:block !important;
+  width:auto !important;
+  margin:0 !important;
+  padding:11px 16px !important;
+  background:#f4f7fb !important;
+  border-bottom:1px solid var(--line2) !important;
+  border-radius:0 !important;
+  font-size:13.5px !important;
+  font-weight:700 !important;
+  color:var(--head) !important;
+}
+body.omr-connect .cbi-map-descr,
+body.omr-connect .cbi-section-descr{
+  color:var(--mut) !important;
+  font-size:12.5px !important;
+  padding:10px 16px 0 !important;
+  margin:0 !important;
+  line-height:1.5 !important;
+}
+body.omr-connect .cbi-value{
+  display:grid !important;
+  grid-template-columns:minmax(160px,220px) minmax(0,1fr) !important;
+  gap:8px 14px !important;
+  align-items:start !important;
+  padding:10px 16px !important;
+  margin:0 !important;
+  border-bottom:1px solid var(--line2) !important;
+}
+body.omr-connect .cbi-value:last-child{ border-bottom:0 !important; }
+body.omr-connect .cbi-value-title{
+  padding-top:8px !important;
+  color:var(--mut) !important;
+  font-size:12.5px !important;
+  font-weight:600 !important;
+  text-align:start !important;
+  float:none !important;
+  width:auto !important;
+}
+body.omr-connect .cbi-value-field{
+  float:none !important;
+  width:auto !important;
+  max-width:520px !important;
+}
+body.omr-connect .cbi-value-description{
+  display:block !important;
+  color:var(--mut) !important;
+  font-size:11.5px !important;
+  margin-top:4px !important;
+  line-height:1.45 !important;
+  opacity:.95;
+}
+body.omr-connect .cbi-section-node{ margin:0 !important; padding:0 !important; border:0 !important; }
+body.omr-connect .cbi-section-create,
+body.omr-connect .cbi-page-actions,
+body.omr-connect .cbi-section-actions{
+  background:#f7f9fc !important;
+  border-top:1px solid var(--line2) !important;
+  padding:12px 16px !important;
+  margin:0 !important;
+  display:flex !important;
+  flex-wrap:wrap !important;
+  gap:8px !important;
+  align-items:center !important;
+}
+
+body.omr-connect h3, body.omr-connect h4, body.omr-connect legend,
 body.omr-connect td, body.omr-connect th, body.omr-connect label{ color:var(--txt) !important; }
 body.omr-connect a{ color:var(--accent) !important; }
-body.omr-connect input, body.omr-connect select, body.omr-connect textarea{
-  background:#fff !important; border:1px solid #b8c2ce !important; color:var(--txt) !important;
-  border-radius:4px !important; padding:7px 9px !important;
-}
-body.omr-connect .btn, body.omr-connect .cbi-button, body.omr-connect button.oc-btn{
-  background:var(--accent) !important; border:1px solid var(--accent2) !important; color:#fff !important;
-  border-radius:4px !important; font-weight:700 !important; box-shadow:none !important;
-}
-body.omr-connect .cbi-button-reset, body.omr-connect .oc-btn.ghost{
-  background:#f7f9fb !important; border:1px solid var(--line) !important; color:var(--txt) !important;
-}
-body.omr-connect footer{ background:transparent !important; border:0 !important; color:var(--mut) !important; text-align:center !important; padding:16px !important; }
-body.omr-connect .alert-message.warning{ background:var(--warnbg) !important; border:1px solid #f0d7a3 !important; color:#7a5b12 !important; border-radius:4px !important; }
 
-/* Connect UI */
+body.omr-connect input[type="text"],
+body.omr-connect input[type="password"],
+body.omr-connect input[type="number"],
+body.omr-connect input.cbi-input-text,
+body.omr-connect input.cbi-input-password,
+body.omr-connect select,
+body.omr-connect textarea,
+body.omr-connect .cbi-input-select{
+  background:#fff !important;
+  border:1px solid #b4c0ce !important;
+  color:var(--txt) !important;
+  border-radius:6px !important;
+  padding:8px 10px !important;
+  min-height:34px !important;
+  box-shadow:inset 0 1px 1px rgba(16,36,64,.04) !important;
+  max-width:100% !important;
+}
+body.omr-connect input:focus,
+body.omr-connect select:focus,
+body.omr-connect textarea:focus{
+  outline:0 !important;
+  border-color:var(--accent) !important;
+  box-shadow:0 0 0 3px rgba(42,102,224,.15) !important;
+}
+
+body.omr-connect .btn,
+body.omr-connect .cbi-button,
+body.omr-connect button.oc-btn,
+body.omr-connect .cbi-button-apply,
+body.omr-connect .cbi-button-save,
+body.omr-connect input.cbi-button{
+  background:var(--accent) !important;
+  border:1px solid var(--accent2) !important;
+  color:#fff !important;
+  border-radius:6px !important;
+  font-weight:700 !important;
+  box-shadow:none !important;
+  padding:8px 14px !important;
+  min-height:34px !important;
+}
+body.omr-connect .cbi-button-reset,
+body.omr-connect .cbi-button-neutral,
+body.omr-connect .oc-btn.ghost,
+body.omr-connect .cbi-button-remove{
+  background:#f7f9fb !important;
+  border:1px solid var(--line) !important;
+  color:var(--txt) !important;
+}
+body.omr-connect .cbi-button-add,
+body.omr-connect .cbi-button-action{
+  background:#1f7a4d !important;
+  border-color:#17633d !important;
+  color:#fff !important;
+}
+
+body.omr-connect table,
+body.omr-connect .table{
+  width:100% !important;
+  border-collapse:separate !important;
+  border-spacing:0 !important;
+}
+body.omr-connect th{
+  background:#f4f7fb !important;
+  color:var(--mut) !important;
+  font-weight:700 !important;
+  font-size:12px !important;
+  padding:9px 12px !important;
+  border-bottom:1px solid var(--line2) !important;
+}
+body.omr-connect td{
+  padding:9px 12px !important;
+  border-bottom:1px solid var(--line2) !important;
+  vertical-align:middle !important;
+}
+
+body.omr-connect footer{
+  background:transparent !important;
+  border:0 !important;
+  color:var(--mut) !important;
+  text-align:center !important;
+  padding:18px !important;
+  font-size:12px !important;
+}
+body.omr-connect .alert-message{
+  border-radius:8px !important;
+  padding:12px 14px !important;
+  margin:0 0 12px !important;
+  box-shadow:var(--shadow) !important;
+}
+body.omr-connect .alert-message.warning{
+  background:var(--warnbg) !important;
+  border:1px solid #efd4a0 !important;
+  color:#7a5b12 !important;
+}
+body.omr-connect .alert-message.notice,
+body.omr-connect .alert-message.info{
+  background:#eaf2ff !important;
+  border:1px solid #bdd3f7 !important;
+  color:#1e3a5f !important;
+}
+
+/* Tabs inside LuCI maps */
+body.omr-connect .cbi-tabmenu{
+  display:flex !important;
+  flex-wrap:wrap !important;
+  gap:0 !important;
+  border-bottom:2px solid var(--line) !important;
+  margin:0 0 12px !important;
+  padding:0 !important;
+  background:transparent !important;
+}
+body.omr-connect .cbi-tabmenu li{
+  list-style:none !important;
+  margin:0 !important;
+}
+body.omr-connect .cbi-tabmenu a{
+  display:block !important;
+  padding:10px 14px !important;
+  color:var(--mut) !important;
+  font-weight:700 !important;
+  border-bottom:2px solid transparent !important;
+  margin-bottom:-2px !important;
+  text-decoration:none !important;
+}
+body.omr-connect .cbi-tabmenu .cbi-tab-active a,
+body.omr-connect .cbi-tabmenu li.active a{
+  color:var(--accent) !important;
+  border-bottom-color:var(--accent) !important;
+}
+
+/* Bonding / multipath cues on network pages */
+body.omr-connect[data-page*="wizard"] .cbi-map > h3::after,
+body.omr-connect[data-page*="settings"] .cbi-map > h3::after{
+  content:"";
+}
+body.omr-connect .cbi-input-checkbox,
+body.omr-connect input[type="checkbox"]{
+  width:16px !important;
+  height:16px !important;
+  accent-color:var(--accent);
+}
+
+/* Connect custom UI */
 .oc-tabs{ display:flex; gap:0; flex-wrap:wrap; margin:0 0 12px; border-bottom:2px solid var(--line); }
 .oc-tab{
   border:0; background:transparent; color:var(--mut); border-radius:0;
@@ -83,18 +317,19 @@ body.omr-connect .alert-message.warning{ background:var(--warnbg) !important; bo
 .oc-panel.active{ display:block; }
 .oc-card{
   background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
-  padding:0; margin:0 0 12px; overflow:hidden;
+  padding:0; margin:0 0 12px; overflow:hidden; box-shadow:var(--shadow);
 }
 .oc-card > h3{
-  margin:0; padding:10px 14px; font-size:13.5px; background:#f7f9fb;
+  margin:0; padding:11px 14px; font-size:13.5px; background:#f4f7fb;
   border-bottom:1px solid var(--line2); display:flex; align-items:center; gap:8px;
+  color:var(--head) !important; font-weight:700;
 }
 .oc-card .oc-body{ padding:14px; }
-.oc-meta{ color:var(--mut); font-size:12px; margin:0 0 10px; }
+.oc-meta{ color:var(--mut); font-size:12px; margin:0 0 10px; line-height:1.45; }
 .oc-hero{
   background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
   padding:14px; margin:0 0 12px; display:flex; align-items:center; justify-content:space-between;
-  gap:12px; flex-wrap:wrap;
+  gap:12px; flex-wrap:wrap; box-shadow:var(--shadow);
 }
 .oc-hero .state{ display:flex; align-items:center; gap:12px; }
 .oc-orb{ width:42px; height:42px; border-radius:50%; display:grid; place-items:center; font-size:18px; font-weight:800; border:2px solid; }
@@ -104,16 +339,16 @@ body.omr-connect .alert-message.warning{ background:var(--warnbg) !important; bo
 .oc-hero h2{ margin:0 0 3px; font-size:16px; }
 .oc-hero p{ margin:0; color:var(--mut); font-size:12.5px; }
 .oc-btn{
-  border:1px solid var(--accent2); cursor:pointer; border-radius:4px; padding:8px 14px;
+  border:1px solid var(--accent2); cursor:pointer; border-radius:6px; padding:8px 14px;
   font-size:13px; font-weight:700; color:#fff; background:var(--accent);
-  display:inline-flex; align-items:center; gap:6px;
+  display:inline-flex; align-items:center; gap:6px; text-decoration:none;
 }
 .oc-btn:disabled{ opacity:.55; cursor:default; }
 .oc-btn.ghost{ background:#f7f9fb; border-color:var(--line); color:var(--txt); }
 .oc-btn.danger{ background:var(--bad); border-color:#b53535; }
 .oc-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px; margin-bottom:12px; }
-.oc-mini{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:12px; }
-.oc-mini h4{ margin:0 0 8px; font-size:13px; display:flex; align-items:center; gap:7px; }
+.oc-mini{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:12px; box-shadow:var(--shadow); }
+.oc-mini h4{ margin:0 0 8px; font-size:13px; display:flex; align-items:center; gap:7px; color:var(--head) !important; }
 .oc-row{ display:flex; justify-content:space-between; gap:8px; font-size:12.5px; margin:4px 0; }
 .oc-row span:first-child{ color:var(--mut); }
 .oc-pill{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; }
@@ -125,12 +360,12 @@ body.omr-connect .alert-message.warning{ background:var(--warnbg) !important; bo
 .oc-dot.bad{ background:var(--bad); }
 .oc-dot.warn{ background:#e2a527; }
 .oc-advice{ display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
-.oc-alert{ border-radius:4px; padding:10px 12px; font-size:12.5px; border:1px solid; }
+.oc-alert{ border-radius:6px; padding:10px 12px; font-size:12.5px; border:1px solid; }
 .oc-alert.bad{ background:var(--badbg); border-color:#f1b0b0; }
 .oc-alert.warn{ background:var(--warnbg); border-color:#f0d7a3; }
 .oc-alert.ok{ background:var(--okbg); border-color:#9ed9b5; }
 .oc-alert b{ display:block; margin-bottom:2px; }
-.oc-form{ display:block; max-width:720px; }
+.oc-form{ display:block; max-width:760px; }
 .oc-field{ display:grid; grid-template-columns:180px 1fr; gap:10px; align-items:start; margin:0 0 10px; }
 .oc-field label{ padding-top:8px; color:var(--mut); font-size:12.5px; }
 .oc-field input, .oc-field select{ width:100%; }
@@ -138,10 +373,10 @@ body.omr-connect .alert-message.warning{ background:var(--warnbg) !important; bo
 .oc-actions{ display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 0; padding-top:10px; border-top:1px solid var(--line2); }
 .oc-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
 .oc-table th, .oc-table td{ padding:8px 10px; border-bottom:1px solid var(--line2); text-align:start; }
-.oc-table th{ background:#f7f9fb; color:var(--mut); font-weight:700; }
+.oc-table th{ background:#f4f7fb; color:var(--mut); font-weight:700; }
 .oc-toast{
   position:fixed; left:50%; bottom:20px; transform:translateX(-50%) translateY(12px);
-  background:#1e3a5f; color:#fff; padding:10px 16px; border-radius:4px; font-size:13px;
+  background:var(--head); color:#fff; padding:10px 16px; border-radius:6px; font-size:13px;
   opacity:0; transition:.2s; pointer-events:none; z-index:99;
 }
 .oc-toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
@@ -153,4 +388,5 @@ body.omr-connect .alert-message.warning{ background:var(--warnbg) !important; bo
   .oc-field{ grid-template-columns:1fr; gap:4px; }
   .oc-help{ grid-column:1; }
   .oc-field label{ padding-top:0; }
+  body.omr-connect .cbi-value{ grid-template-columns:1fr !important; }
 }

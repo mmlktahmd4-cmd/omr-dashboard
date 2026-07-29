@@ -10,6 +10,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   <button type="button" class="oc-tab active" data-tab="status">الحالة</button>
   <button type="button" class="oc-tab" data-tab="server">السيرفر</button>
   <button type="button" class="oc-tab" data-tab="wan">الوصلات / برودباند</button>
+  <button type="button" class="oc-tab" data-tab="lan">خرج LAN</button>
   <button type="button" class="oc-tab" data-tab="bond">الدمج</button>
   <button type="button" class="oc-tab" data-tab="settings">إعدادات عامة</button>
 </div>
@@ -135,6 +136,52 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   </div>
 </div>
 
+<!-- LAN -->
+<div class="oc-panel" id="panel-lan">
+  <div class="oc-card">
+    <h3>خرج الشبكة المحلية (LAN)</h3>
+    <div class="oc-body">
+      <div class="oc-meta">مثل المعالج الأصلي: عنوان الراوتر للعملاء + DHCP أو IP ثابت، مع سيرفر DHCP للأجهزة على الشبكة.</div>
+      <div class="oc-alert warn" style="margin-bottom:12px"><b>تنبيه الدمج</b>لا تستخدم نفس شبكة الـ LAN لأي WAN (مودم). مثلاً إن كان المودم 192.168.200.x فاجعل الـ LAN 10.10.10.x.</div>
+      <div class="oc-form">
+        <div class="oc-field">
+          <label>الجهاز</label>
+          <input id="lan-dev" readonly value="br-lan">
+        </div>
+        <div class="oc-field">
+          <label>طريقة عنوان الراوتر</label>
+          <select id="lan-proto">
+            <option value="static">Static — عنوان ثابت (موصى به)</option>
+            <option value="dhcp">DHCP — يأخذ IP من جهاز آخر على الشبكة</option>
+          </select>
+          <div class="oc-help">Static هو الوضع الطبيعي لراوتر الدمج. DHCP فقط إذا كان Connect خلف راوتر آخر.</div>
+        </div>
+        <div id="lan-static">
+          <div class="oc-field"><label>عنوان IP الخروج (LAN)</label><input id="lan-ip" placeholder="10.10.10.1"></div>
+          <div class="oc-field"><label>القناع (Netmask)</label><input id="lan-mask" value="255.255.255.0" placeholder="255.255.255.0"></div>
+          <div class="oc-field"><label>بوابة (اختياري)</label><input id="lan-gw" placeholder="اتركه فارغاً عادة"><div class="oc-help">نادراً ما يُحتاج على الـ LAN.</div></div>
+        </div>
+        <div class="oc-field">
+          <label>سيرفر DHCP للعملاء</label>
+          <select id="lan-dhcp">
+            <option value="1">مفعّل — يوزّع عناوين تلقائياً</option>
+            <option value="0">متوقف — عناوين ثابتة على الأجهزة</option>
+          </select>
+        </div>
+        <div id="lan-dhcp-opts">
+          <div class="oc-field"><label>بداية النطاق</label><input id="lan-dhcp-start" value="100" placeholder="100"><div class="oc-help">آخر جزء من العنوان، مثل 100 → x.x.x.100</div></div>
+          <div class="oc-field"><label>عدد العناوين</label><input id="lan-dhcp-limit" value="150" placeholder="150"></div>
+          <div class="oc-field"><label>مدة الإيجار</label><input id="lan-dhcp-lease" value="12h" placeholder="12h"></div>
+        </div>
+        <div class="oc-actions">
+          <button class="oc-btn" type="button" id="lan-save">حفظ وتطبيق LAN</button>
+          <a class="oc-btn ghost" href="<%=url("admin/network/network")%>">شبكة LuCI المتقدمة</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- BOND -->
 <div class="oc-panel" id="panel-bond">
   <div class="oc-card">
@@ -197,11 +244,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
             <option value="failover">failover — تحويل</option>
           </select>
         </div>
-        <div class="oc-field">
-          <label>عنوان LAN للراوتر</label>
-          <input id="set-lan" placeholder="192.168.200.1">
-          <div class="oc-help">بعد التغيير افتح العنوان الجديد في المتصفح.</div>
-        </div>
+        <div class="oc-meta">لإعداد عنوان خرج LAN وDHCP استخدم تبويب <b>خرج LAN</b>.</div>
         <div class="oc-actions">
           <button class="oc-btn" type="button" id="set-save">حفظ الإعدادات</button>
           <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/wizard")%>">المعالج الكامل</a>
@@ -242,6 +285,30 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       if(tab.getAttribute('data-tab')!=='status') loadConfig();
     };
   });
+
+  function toggleLan(){
+    var p=$('lan-proto').value;
+    $('lan-static').style.display = (p==='static')?'block':'none';
+  }
+  function toggleLanDhcp(){
+    $('lan-dhcp-opts').style.display = ($('lan-dhcp').value==='1')?'block':'none';
+  }
+  $('lan-proto').onchange=toggleLan;
+  $('lan-dhcp').onchange=toggleLanDhcp;
+
+  function fillLanForm(lan){
+    if(!lan) return;
+    if(lan.device) $('lan-dev').value=lan.device;
+    if(lan.proto) $('lan-proto').value=lan.proto;
+    $('lan-ip').value=lan.ip||'';
+    $('lan-mask').value=lan.netmask||'255.255.255.0';
+    $('lan-gw').value=lan.gateway||'';
+    $('lan-dhcp').value = lan.dhcp_server===false ? '0' : '1';
+    $('lan-dhcp-start').value=lan.dhcp_start||'100';
+    $('lan-dhcp-limit').value=lan.dhcp_limit||'150';
+    $('lan-dhcp-lease').value=lan.dhcp_leasetime||'12h';
+    toggleLan(); toggleLanDhcp();
+  }
 
   function toggleProto(){
     var p=$('wan-proto').value;
@@ -357,12 +424,12 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         if(c.settings.vpn) $('set-vpn').value=c.settings.vpn;
         if(c.settings.proxy) $('set-proxy').value=c.settings.proxy;
         if(c.settings.master) $('set-master').value=c.settings.master;
-        $('set-lan').value=c.settings.lan_ip||'';
         if(c.settings.bond_profile) $('bond-profile').value=c.settings.bond_profile;
         $('bond-sched').value=(c.settings.mptcp_live||c.settings.mptcp_scheduler||'—');
         $('bond-master').value=c.settings.master||'—';
         $('bond-ka').value=c.settings.keepalive||'—';
       }
+      if(c.lan) fillLanForm(c.lan);
       var sel=$('wan-dev'); sel.innerHTML='';
       var rows='', brows='', wrows='';
       (c.devices||[]).forEach(function(d){
@@ -466,13 +533,28 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     if(busy) return; busy=true;
     var extra='&vpn='+encodeURIComponent($('set-vpn').value)
       +'&proxy='+encodeURIComponent($('set-proxy').value)
-      +'&master='+encodeURIComponent($('set-master').value)
-      +'&lan_ip='+encodeURIComponent($('set-lan').value.trim());
-    api('setsettings', extra, true).then(function(d){
+      +'&master='+encodeURIComponent($('set-master').value);
+    api('setsettings', extra, true).then(function(){
       toast('تم حفظ الإعدادات');
-      if(d.lan_changed) toast('تغيّر LAN — افتح العنوان الجديد');
       setTimeout(function(){ busy=false; loadConfig(); }, 2000);
     }).catch(function(){ toast('فشل الحفظ'); busy=false; });
+  };
+
+  $('lan-save').onclick=function(){
+    if(busy) return; busy=true; toast('جاري حفظ LAN…');
+    var extra='&proto='+encodeURIComponent($('lan-proto').value)
+      +'&ip='+encodeURIComponent($('lan-ip').value.trim())
+      +'&netmask='+encodeURIComponent($('lan-mask').value.trim()||'255.255.255.0')
+      +'&gateway='+encodeURIComponent($('lan-gw').value.trim())
+      +'&dhcp_server='+encodeURIComponent($('lan-dhcp').value)
+      +'&dhcp_start='+encodeURIComponent($('lan-dhcp-start').value.trim()||'100')
+      +'&dhcp_limit='+encodeURIComponent($('lan-dhcp-limit').value.trim()||'150')
+      +'&dhcp_leasetime='+encodeURIComponent($('lan-dhcp-lease').value.trim()||'12h');
+    api('setlan', extra, true).then(function(d){
+      if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
+      toast('تم حفظ LAN — افتح العنوان الجديد إن تغيّر');
+      setTimeout(function(){ busy=false; loadConfig(); }, 4000);
+    }).catch(function(){ toast('فشل حفظ LAN'); busy=false; });
   };
 
   loadStatus();
