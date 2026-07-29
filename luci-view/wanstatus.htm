@@ -215,18 +215,18 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         <div class="oc-field">
           <label>بروفايل جاهز</label>
           <select id="bond-profile">
-            <option value="smooth">سلس — ضد الانقطاع (موصى به)</option>
+            <option value="smooth">نسخ الحماية — ضد القطع (موصى به)</option>
             <option value="speed">أقصى سرعة — توزيع الحمل</option>
             <option value="failover">تحويل احتياطي</option>
             <option value="custom">مخصص — يدوي</option>
           </select>
-          <div class="oc-help" id="bond-help">اختر بروفايلاً لملء الخيارات، ثم عدّلها إن احتجت واضغط تطبيق.</div>
+          <div class="oc-help" id="bond-help">نسخ الحماية (bpf_red): كل خط يحمل نسخة من الطلبات — سقوط خط لا يقطع العميل. يعمل حتى بخط واحد.</div>
         </div>
         <div class="oc-field">
           <label>جدولة MPTCP</label>
           <select id="bond-sched">
-            <option value="bpf_red">bpf_red — سلس / ضد الانقطاع</option>
-            <option value="bpf_rr">bpf_rr — أقصى توزيع</option>
+            <option value="bpf_red">bpf_red — نسخ على كل الخطوط (ضد القطع)</option>
+            <option value="bpf_rr">bpf_rr — أقصى توزيع سرعة</option>
             <option value="bpf_minrtt">bpf_minrtt — أقل تأخير</option>
             <option value="bpf_bkup">bpf_bkup — احتياطي</option>
             <option value="bpf_burst">bpf_burst</option>
@@ -368,7 +368,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         <div class="oc-field">
           <label>وضع التحسين</label>
           <select id="opt-mode">
-            <option value="smooth">سلس — استقرار أعلى</option>
+            <option value="smooth">نسخ الحماية — ضد القطع (موصى به)</option>
             <option value="speed">سرعة — أقصى توزيع</option>
             <option value="failover">احتياطي — خط أساسي + احتياط</option>
           </select>
@@ -526,7 +526,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         +'</div></div>';
     });
     var v=d.vps||{}, t=d.tunnel||{}, p=d.proxy||{}, b=d.bonding||{}, w=d.warnings||{};
-    var bondCls = b.state==='active'?'ok':(b.state==='partial'?'warn':'bad');
+    var bondCls = b.state==='active'?'ok':'bad';
     cards += '<div class="oc-mini"><h4><span class="oc-dot '+(v.reachable?'ok':'bad')+'"></span>السيرفر</h4>'
       +'<div class="oc-row"><span>العنوان</span><span>'+(v.host||'—')+'</span></div>'
       +'<div class="oc-row"><span>الوصول</span>'+pill(v.reachable,'يعمل','لا يصل')+'</div>'
@@ -542,10 +542,10 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       +'<div class="oc-row"><span>النوع</span><span>'+(p.name||'—')+'</span></div>'
       +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="proxy" data-l="إعادة البروكسي">إعادة تشغيل</button></div></div>';
     cards += '<div class="oc-mini"><h4><span class="oc-dot '+bondCls+'"></span>حالة الدمج</h4>'
-      +'<div class="oc-row"><span>الحالة</span>'+(b.state==='active'?pill(true,'شغال',''):(b.state==='partial'?pill(false,'جزئي',true):pill(false,'متوقف')))+'</div>'
-      +'<div class="oc-row"><span>الخطوط المشاركة</span><b>'+(b.paths_online!=null?b.paths_online:'—')+' / '+(b.paths_ready!=null?b.paths_ready:'—')+'</b></div>'
+      +'<div class="oc-row"><span>الحالة</span>'+(b.state==='active'?pill(true,'شغال',''):pill(false,'متوقف'))+'</div>'
+      +'<div class="oc-row"><span>الخطوط</span><b>'+(b.paths_online!=null?b.paths_online:'—')+' متصل / '+(b.paths_ready!=null?b.paths_ready:'—')+' جاهز</b></div>'
       +'<div class="oc-row"><span>الوضع</span><span>'+(b.master||'—')+'</span></div>'
-      +'<div class="oc-row"><span>الجدولة</span><span>'+(b.scheduler||'—')+'</span></div>'
+      +'<div class="oc-row"><span>الجدولة</span><span>'+(b.scheduler||'—')+(b.redundant?' · نسخ حماية':'')+'</span></div>'
       +'<div class="oc-meta" style="margin-top:8px">'+(b.message||'')+'</div></div>';
     var ex=d.exit||{};
     var bestWan='';
@@ -562,20 +562,26 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     $('oc-grid').innerHTML=cards;
 
     var problems=[];
-    if(b.state==='active') problems.push({lvl:'ok',t:'الدمج شغال',d:b.message||'الخطوط تتجمع عبر النفق.'});
-    else if(b.state==='partial') problems.push({lvl:'warn',t:'الدمج جزئي',d:b.message||'وصّل الخط الثاني حتى يكتمل التجميع.'});
-    else problems.push({lvl:'bad',t:'الدمج غير شغال',d:b.message||'تحقق من النفق والبروكسي والوصلات.'});
+    if(b.state==='active'){
+      if((b.paths_online||0)>=2 && b.redundant)
+        problems.push({lvl:'ok',t:'الدمج شغال بنسخ الحماية',d:b.message||'الطلبات منسوخة على الخطوط — فصل خط لا يقطع العميل.'});
+      else
+        problems.push({lvl:'ok',t:'الدمج شغال',d:b.message||'يعمل حتى بخط واحد؛ الخط الواقف ينضم تلقائياً.'});
+    } else problems.push({lvl:'bad',t:'الدمج غير شغال',d:b.message||'تحقق من النفق والبروكسي والوصلات.'});
     if(w.lan_wan_clash) problems.push({lvl:'bad',t:'تعارض شبكة LAN مع WAN',d:'الـ LAN والـ WAN على نفس الرينج. غيّر خرج LAN إلى شبكة مختلفة (مثل 10.10.10.1).'});
     if(!v.reachable) problems.push({lvl:'bad',t:'السيرفر غير متصل',d:'وصّل وصلة إنترنت ثم تبويب السيرفر، أو اضغط إعادة الاتصال.'});
     if(v.reachable && !t.up) problems.push({lvl:'bad',t:'النفق متوقف',d:'أعد ربط السيرفر أو أعد تشغيل النفق.'});
     if(t.up && !p.running) problems.push({lvl:'warn',t:'البروكسي متوقف',d:'اضغط إعادة تشغيل البروكسي.'});
-    (d.wans||[]).forEach(function(x){ if(!x.link) problems.push({lvl:'warn',t:x.name+' بلا كيبل',d:'افتح تبويب الوصلات واربط المنفذ.'}); });
+    (d.wans||[]).forEach(function(x){ if(!x.link) problems.push({lvl:'warn',t:x.name+' بلا كيبل',d:'الخط واقف حالياً — النظام يكمل على الخطوط المتصلة.'}); });
     var healthy=v.reachable && t.up && p.running && wanUp>=1;
     var orb=$('oc-orb');
     var howto=$('oc-howto');
     if(howto) howto.style.display = (wanUp<1 || !v.reachable) ? 'block' : 'none';
-    if(b.state==='active' && healthy){ orb.className='oc-orb ok'; orb.textContent='✓'; $('oc-title').textContent='الدمج شغال'; $('oc-desc').textContent=(b.paths_online||wanUp)+' خطوط · سحب '+fmtBps(sumRx); }
-    else if(healthy && b.state==='partial'){ orb.className='oc-orb warn'; orb.textContent='!'; $('oc-title').textContent='يعمل — دمج جزئي'; $('oc-desc').textContent=b.message||''; }
+    if(b.state==='active' && healthy){
+      orb.className='oc-orb ok'; orb.textContent='✓';
+      $('oc-title').textContent=(b.paths_online||wanUp)>=2 ? 'الدمج شغال' : 'شغال (خط واحد)';
+      $('oc-desc').textContent=(b.paths_online||wanUp)+' متصل · '+(b.paths_ready||wanUp)+' جاهز · سحب '+fmtBps(sumRx);
+    }
     else if(problems.some(function(x){return x.lvl==='bad';})){ orb.className='oc-orb bad'; orb.textContent='!'; $('oc-title').textContent='يحتاج إعداد / إصلاح'; $('oc-desc').textContent='استخدم التبويبات بالأعلى'; }
     else { orb.className='oc-orb warn'; orb.textContent='!'; $('oc-title').textContent='يعمل مع ملاحظات'; $('oc-desc').textContent='راجع التنبيهات'; }
     $('oc-advice').innerHTML = problems.map(function(pr){ return '<div class="oc-alert '+pr.lvl+'"><b>'+pr.t+'</b>'+pr.d+'</div>'; }).join('');
@@ -610,14 +616,14 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   }
   function fillBondHelp(p){
     var h=$('bond-help'); if(!h) return;
-    if(p==='smooth') h.textContent='سلس: يملأ bpf_red + balancing + keepalive 5s — يمكنك تعديلها قبل التطبيق.';
-    else if(p==='speed') h.textContent='سرعة: يملأ bpf_rr + balancing + keepalive 10s — يمكنك تعديلها قبل التطبيق.';
-    else if(p==='failover') h.textContent='احتياطي: يملأ bpf_bkup + failover — يمكنك تعديلها قبل التطبيق.';
+    if(p==='smooth') h.textContent='نسخ الحماية: bpf_red على كل الخطوط — كل مسار يحمل نسخة؛ فصل خط لا يقطع العميل. يعمل بخط واحد.';
+    else if(p==='speed') h.textContent='سرعة: bpf_rr توزيع حمل أقصى — أسرع لكن قد يحصل قطع لحظي عند سقوط خط.';
+    else if(p==='failover') h.textContent='احتياطي: خط أساسي + احتياط — التحويل عند السقوط فقط.';
     else h.textContent='مخصص: عدّل الخيارات يدوياً ثم طبّق.';
   }
   function applyBondPreset(p){
-    if(p==='smooth'){ setSelectValue('bond-sched','bpf_red'); setSelectValue('bond-master','balancing'); setSelectValue('bond-ka','5s'); setSelectValue('bond-fail','2'); }
-    else if(p==='speed'){ setSelectValue('bond-sched','bpf_rr'); setSelectValue('bond-master','balancing'); setSelectValue('bond-ka','10s'); setSelectValue('bond-fail','3'); }
+    if(p==='smooth'){ setSelectValue('bond-sched','bpf_red'); setSelectValue('bond-master','balancing'); setSelectValue('bond-ka','3s'); setSelectValue('bond-fail','1'); }
+    else if(p==='speed'){ setSelectValue('bond-sched','bpf_rr'); setSelectValue('bond-master','balancing'); setSelectValue('bond-ka','5s'); setSelectValue('bond-fail','2'); }
     else if(p==='failover'){ setSelectValue('bond-sched','bpf_bkup'); setSelectValue('bond-master','failover'); setSelectValue('bond-ka','5s'); setSelectValue('bond-fail','2'); }
     fillBondHelp(p);
   }

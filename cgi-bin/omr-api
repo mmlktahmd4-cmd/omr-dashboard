@@ -344,12 +344,25 @@ status_json() {
 
   _bond_state="off"
   _bond_msg="الدمج غير شغال"
-  if [ "$_tunup" = "true" ] && [ "$_prun" = "true" ] && [ "$_mp_online" -ge 2 ]; then
+  _sched_is_red=0
+  case "$_sched" in bpf_red|redundant) _sched_is_red=1 ;; esac
+  if [ "$_tunup" = "true" ] && [ "$_prun" = "true" ] && [ "$_mp_online" -ge 1 ]; then
     _bond_state="active"
-    _bond_msg="الدمج شغال — $_mp_online خطوط تشارك في التجميع"
-  elif [ "$_tunup" = "true" ] && [ "$_prun" = "true" ] && [ "$_mp_online" -eq 1 ]; then
-    _bond_state="partial"
-    _bond_msg="الدمج جزئي — خط واحد فقط متصل (يلزم خطّان للتجميع)"
+    if [ "$_mp_online" -ge 2 ]; then
+      if [ "$_sched_is_red" = "1" ]; then
+        _bond_msg="الدمج شغال — نسخ الحماية على $_mp_online خطوط (فصل خط لا يقطع العميل)"
+      else
+        _bond_msg="الدمج شغال — $_mp_online خطوط تشارك في التجميع"
+      fi
+    else
+      _standby=$((_mp_ready - _mp_online))
+      [ "$_standby" -lt 0 ] && _standby=0
+      if [ "$_standby" -gt 0 ]; then
+        _bond_msg="شغال بخط واحد — $_standby خط واقف سيشارك تلقائياً عند عودته (بدون قطع)"
+      else
+        _bond_msg="شغال بخط واحد — وصّل خطاً إضافياً لتفعيل النسخ على مسارين"
+      fi
+    fi
   elif [ "$_tunup" != "true" ]; then
     _bond_state="off"
     _bond_msg="الدمج متوقف — النفق غير متصل"
@@ -378,8 +391,9 @@ status_json() {
   printf '"tunnel":{"dev":"%s","peer":"%s","up":%s,"lat":"%s","service":%s,"ip":"%s"},' \
     "$TUN_DEV" "$TUN_PEER" "$_tunup" "${_tl:-}" "$_gtrun" "$_tunip"
   printf '"proxy":{"name":"shadowsocks-rust","running":%s,"enabled":%s},' "$_prun" "$_pen"
-  printf '"bonding":{"state":"%s","message":"%s","master":"%s","scheduler":"%s","paths_online":%s,"paths_ready":%s,"wans_online":%s},' \
-    "$_bond_state" "$_bond_msg" "$_master" "$_sched" "$_mp_online" "$_mp_ready" "$_net_ready"
+  printf '"bonding":{"state":"%s","message":"%s","master":"%s","scheduler":"%s","paths_online":%s,"paths_ready":%s,"wans_online":%s,"redundant":%s},' \
+    "$_bond_state" "$_bond_msg" "$_master" "$_sched" "$_mp_online" "$_mp_ready" "$_net_ready" \
+    "$([ "$_sched_is_red" = "1" ] && echo true || echo false)"
   printf '"warnings":{"lan_wan_clash":%s},' "$_clash"
 
   # Exit IP + latency after bonding (cached ~40s). IP via SS socks; ping = tunnel peer (path after merge).
@@ -532,14 +546,16 @@ set_bond() {
 
   # apply profile defaults first, then honor explicit UI overrides
   case "$PROF" in
-    smooth)
-      MASTER=balancing; SCHED=bpf_red; KA=5s; FAILI=2
+    smooth|redundant)
+      # نسخ الحماية: bpf_red يرسل نسخة على كل مسار — فصل خط لا يقطع الجلسة
+      MASTER=balancing; SCHED=bpf_red; KA=3s; FAILI=1
       for _bw in $(list_wans); do
         uci set network."$_bw".multipath='on'
         uci set network."$_bw".auto='1'
         uci -q delete network."$_bw".disabled || true
         uci set openmptcprouter."$_bw".multipath='on'
       done
+      PROF=smooth
       ;;
     speed)
       MASTER=balancing; SCHED=bpf_rr; KA=5s; FAILI=2
@@ -628,6 +644,13 @@ set_bond() {
 
   sysctl -w net.mptcp.scheduler="$SCHED" >/dev/null 2>&1 || true
   sysctl -w net.mptcp.stale_loss_cnt=2 >/dev/null 2>&1 || true
+  # faster path recovery when a line drops (redundant / smooth)
+  case "$SCHED" in
+    bpf_red|redundant)
+      sysctl -w net.mptcp.stale_loss_cnt=1 >/dev/null 2>&1 || true
+      sysctl -w net.mptcp.blackhole_timeout=0 >/dev/null 2>&1 || true
+      ;;
+  esac
   CONF=/etc/sysctl.d/zzz_openmptcprouter.conf
   if [ -f "$CONF" ]; then
     grep -q '^net.mptcp.scheduler' "$CONF" \
@@ -642,7 +665,8 @@ set_bond() {
   /etc/init.d/omr-tracker restart >/dev/null 2>&1 || true
   /etc/init.d/glorytun-udp restart >/dev/null 2>&1 || true
 
-  ok_json setbond ",\"profile\":\"$PROF\",\"scheduler\":\"$SCHED\",\"master\":\"$MASTER\",\"keepalive\":\"$KA\",\"fail_interval\":\"$FAILI\""
+  _red=false; case "$SCHED" in bpf_red|redundant) _red=true ;; esac
+  ok_json setbond ",\"profile\":\"$PROF\",\"scheduler\":\"$SCHED\",\"master\":\"$MASTER\",\"keepalive\":\"$KA\",\"fail_interval\":\"$FAILI\",\"redundant\":$_red"
 }
 
 # ---------- set server + auto-fetch keys ----------
@@ -1108,7 +1132,7 @@ optimize_stack() {
   case "$MODE" in
     speed) SCHED=bpf_rr; KA=5s; FAILI=2; MASTER=balancing ;;
     failover) SCHED=bpf_bkup; KA=5s; FAILI=2; MASTER=failover ;;
-    *) MODE=smooth; SCHED=bpf_red; KA=5s; FAILI=2; MASTER=balancing ;;
+    *) MODE=smooth; SCHED=bpf_red; KA=3s; FAILI=1; MASTER=balancing ;;
   esac
 
   # validate scheduler
@@ -1138,6 +1162,7 @@ optimize_stack() {
   uci set network.globals.mptcp_add_addr_accepted='8'
   uci set network.globals.mptcp_syn_retries='4'
 
+  # For smooth/redundant: ALL lines stay "on" so each carries a copy (no backup idle)
   _bi=0
   for _bw in $(list_wans); do
     _bi=$((_bi+1))
@@ -1198,6 +1223,12 @@ optimize_stack() {
 
   sysctl -w net.mptcp.scheduler="$SCHED" >/dev/null 2>&1 || true
   sysctl -w net.mptcp.enabled=1 >/dev/null 2>&1 || true
+  case "$SCHED" in
+    bpf_red|redundant)
+      sysctl -w net.mptcp.stale_loss_cnt=1 >/dev/null 2>&1 || true
+      sysctl -w net.mptcp.blackhole_timeout=0 >/dev/null 2>&1 || true
+      ;;
+  esac
   echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null 2>&1 || true
 
   uci commit openmptcprouter
@@ -1212,7 +1243,8 @@ optimize_stack() {
   ifup omrvpn >/dev/null 2>&1 || true
   /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1 || true
 
-  ok_json optimize ",\"mode\":\"$MODE\",\"scheduler\":\"$SCHED\",\"master\":\"$MASTER\",\"host\":\"$HOST\""
+  _red=false; case "$SCHED" in bpf_red|redundant) _red=true ;; esac
+  ok_json optimize ",\"mode\":\"$MODE\",\"scheduler\":\"$SCHED\",\"master\":\"$MASTER\",\"host\":\"$HOST\",\"redundant\":$_red"
 }
 
 # ---------- settings (compat) ----------
