@@ -1,0 +1,19 @@
+#!/bin/sh
+# OMR Connect — auto-create wanN when a new ethernet/USB NIC appears
+[ "$ACTION" = "add" ] || [ "$ACTION" = "bind" ] || exit 0
+[ -n "$INTERFACE" ] || exit 0
+
+case "$INTERFACE" in
+  lo|tun*|wg*|ifb*|sit*|gre*|teql*|ip6*|erspan*|br-*|wlan*|docker*|veth*|bonding_masters|dummy*) exit 0 ;;
+esac
+
+# settle USB/net sysfs
+(
+  sleep 3
+  [ -d "/sys/class/net/$INTERFACE" ] || exit 0
+  _type=$(cat "/sys/class/net/$INTERFACE/type" 2>/dev/null)
+  [ "$_type" = "1" ] || exit 0
+  rm -f /tmp/omr-wan-discover.ts
+  QUERY_STRING='a=scanwans' REQUEST_METHOD=GET /www/cgi-bin/omr-api >/tmp/omr-connect-scan.log 2>&1
+  logger -t omr-connect "hotplug scan after $INTERFACE ($ACTION)"
+) &

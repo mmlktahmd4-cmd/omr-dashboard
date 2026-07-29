@@ -48,6 +48,12 @@ fi
 dl "luci-view/wanstatus.htm" /usr/lib/lua/luci/view/openmptcprouter/wanstatus.htm || FAIL=1
 fix /usr/lib/lua/luci/view/openmptcprouter/wanstatus.htm
 
+dl "hotplug/98-omr-connect-discover" /etc/hotplug.d/net/98-omr-connect-discover || true
+if [ -f /etc/hotplug.d/net/98-omr-connect-discover ]; then
+  fix /etc/hotplug.d/net/98-omr-connect-discover
+  chmod +x /etc/hotplug.d/net/98-omr-connect-discover 2>/dev/null || true
+fi
+
 uci -q set openmptcprouter.settings.menu='Connect'
 uci -q commit openmptcprouter
 

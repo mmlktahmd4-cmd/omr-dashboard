@@ -22,7 +22,13 @@ fi
 I=$(qget i)
 case "$I" in wan[0-9]|wan[0-9][0-9]) : ;; *) I="" ;; esac
 
-WANS=$(ubus list 2>/dev/null | sed -n 's#^network\.interface\.\(wan[0-9]*\)$#\1#p')
+list_wans() {
+  uci -q show network | sed -n 's/^network\.\(wan[0-9][0-9]*\)=interface$/\1/p' | sort -V
+}
+WANS=$(list_wans)
+# fallback to ubus if uci empty
+[ -z "$WANS" ] && WANS=$(ubus list 2>/dev/null | sed -n 's#^network\.interface\.\(wan[0-9]*\)$#\1#p')
+
 VPS_HOST=$(uci -q get glorytun-udp.vpn.host)
 [ -z "$VPS_HOST" ] && VPS_HOST=$(uci -q get openmptcprouter.vps.ip | awk '{print $1}')
 TUN_DEV=$(uci -q get glorytun-udp.vpn.dev); [ -z "$TUN_DEV" ] && TUN_DEV=tun0
@@ -66,8 +72,195 @@ ping_ms() {
 ok_json() { printf '{"ok":true,"a":"%s"%s}' "$1" "${2:-}"; }
 err_json() { printf '{"ok":false,"error":%s%s}' "$(json_str "$1")" "${2:-}"; }
 
+# ---------- WAN discovery (new USB/eth → wanN with OMR basic path) ----------
+lan_device() {
+  _ld=$(uci -q get network.lan.device)
+  [ -z "$_ld" ] && _ld=$(uci -q get network.lan.ifname | awk '{print $1}')
+  [ -z "$_ld" ] && _ld=eth0
+  printf '%s' "$_ld"
+}
+
+next_wan_name() {
+  _n=1
+  while uci -q get "network.wan${_n}" >/dev/null 2>&1; do _n=$((_n + 1)); done
+  printf 'wan%s' "$_n"
+}
+
+wan_dev_meta() {
+  # $1=netdev → sets _mac _modalias _product
+  _dn="$1"
+  _mac=$(cat /sys/class/net/"$_dn"/address 2>/dev/null | tr -d '\n')
+  _modalias=""
+  _product=""
+  if [ -f /sys/class/net/"$_dn"/device/uevent ]; then
+    _ma=$(sed -n 's/^MODALIAS=//p' /sys/class/net/"$_dn"/device/uevent 2>/dev/null | head -1 | tr -d '\n')
+    [ -n "$_ma" ] && [ -n "$_mac" ] && _modalias="${_ma}-${_mac}"
+    _vid=$(cat /sys/class/net/"$_dn"/device/../idVendor 2>/dev/null | tr -d '\n')
+    _pid=$(cat /sys/class/net/"$_dn"/device/../idProduct 2>/dev/null | tr -d '\n')
+    _bcd=$(cat /sys/class/net/"$_dn"/device/../bcdDevice 2>/dev/null | tr -d '\n')
+    [ -n "$_vid" ] && [ -n "$_pid" ] && _product="${_vid}/${_pid}/${_bcd}"
+  fi
+}
+
+create_wan_basic() {
+  # $1=wanName $2=device $3=multipath(default on)
+  _wi="$1"; _wd="$2"; _wmp="${3:-on}"
+  _wn=$(printf '%s' "$_wi" | sed 's/wan//')
+  _wmet=$((4 + _wn))
+  _wip6=$((60 + _wmet))
+  wan_dev_meta "$_wd"
+
+  uci set network."$_wi"=interface
+  uci set network."$_wi".device="$_wd"
+  uci set network."$_wi".proto='dhcp'
+  uci set network."$_wi".multipath="$_wmp"
+  uci set network."$_wi".defaultroute='0'
+  uci set network."$_wi".delegate='0'
+  uci set network."$_wi".addlatency='0'
+  uci set network."$_wi".metric="$_wmet"
+  uci set network."$_wi".ip4table="$_wmet"
+  uci set network."$_wi".ip6table="$_wip6"
+  uci set network."$_wi".peerdns='0'
+  uci set network."$_wi".label="$_wi"
+  uci set network."$_wi".ipv6='0'
+  uci set network."$_wi".auto='1'
+  uci -q delete network."$_wi".disabled || true
+  [ -n "$_modalias" ] && uci set network."$_wi".modalias="$_modalias"
+  [ -n "$_product" ] && uci set network."$_wi".product="$_product"
+
+  uci set network."${_wi}_dev"=device
+  uci set network."${_wi}_dev".name="$_wd"
+  uci set network."${_wi}_dev".txqueuelen='1000'
+
+  uci set openmptcprouter."$_wi"=interface
+  uci set openmptcprouter."$_wi".multipath="$_wmp"
+  uci set openmptcprouter."$_wi".metric="$_wmet"
+  uci set openmptcprouter."$_wi".multipathvpn='0'
+
+  echo "$(uci -q get firewall.zone_wan.network)" | grep -qw "$_wi" || \
+    uci add_list firewall.zone_wan.network="$_wi"
+}
+
+ensure_wan_path() {
+  # fix incomplete existing WAN to OMR basic path (keep proto/device/multipath)
+  _wi="$1"
+  _wd=$(uci -q get network."$_wi".device)
+  [ -z "$_wd" ] && return 1
+  _wn=$(printf '%s' "$_wi" | sed 's/wan//')
+  _wmet=$(uci -q get network."$_wi".metric)
+  [ -z "$_wmet" ] && _wmet=$((4 + _wn))
+  _wip6=$(uci -q get network."$_wi".ip6table)
+  [ -z "$_wip6" ] && _wip6=$((60 + _wmet))
+  _wmp=$(uci -q get network."$_wi".multipath); [ -z "$_wmp" ] && _wmp=on
+
+  uci set network."$_wi".multipath="$_wmp"
+  uci set network."$_wi".defaultroute='0'
+  uci set network."$_wi".delegate='0'
+  uci -q get network."$_wi".addlatency >/dev/null 2>&1 || uci set network."$_wi".addlatency='0'
+  uci set network."$_wi".metric="$_wmet"
+  uci set network."$_wi".ip4table="$_wmet"
+  uci set network."$_wi".ip6table="$_wip6"
+  uci -q get network."$_wi".label >/dev/null 2>&1 || uci set network."$_wi".label="$_wi"
+  uci -q get network."$_wi".ipv6 >/dev/null 2>&1 || uci set network."$_wi".ipv6='0'
+
+  if ! uci -q get network."${_wi}_dev" >/dev/null 2>&1; then
+    uci set network."${_wi}_dev"=device
+    uci set network."${_wi}_dev".name="$_wd"
+    uci set network."${_wi}_dev".txqueuelen='1000'
+  fi
+  uci set openmptcprouter."$_wi"=interface
+  uci set openmptcprouter."$_wi".multipath="$_wmp"
+  uci set openmptcprouter."$_wi".metric="$_wmet"
+  echo "$(uci -q get firewall.zone_wan.network)" | grep -qw "$_wi" || \
+    uci add_list firewall.zone_wan.network="$_wi"
+  return 0
+}
+
+discover_wans() {
+  # $1=force(1) — scan physical NICs, create missing wanN, fix paths
+  _force="${1:-0}"
+  _stamp=/tmp/omr-wan-discover.ts
+  _now=$(date +%s)
+  if [ "$_force" != "1" ] && [ -f "$_stamp" ]; then
+    _old=$(cat "$_stamp" 2>/dev/null)
+    [ -n "$_old" ] && [ $((_now - _old)) -lt 15 ] 2>/dev/null && {
+      DISCOVERED_ADDED=""
+      return 0
+    }
+  fi
+  echo "$_now" > "$_stamp"
+
+  _land=$(lan_device)
+  _used="$_land $(uci -q get network.omrvpn.device) $TUN_DEV"
+  for _w in $(list_wans); do
+    _used="$_used $(uci -q get network.$_w.device)"
+  done
+
+  DISCOVERED_ADDED=""
+  _changed=0
+
+  for _w in $(list_wans); do
+    _need=0
+    [ -z "$(uci -q get network.$_w.metric)" ] && _need=1
+    [ -z "$(uci -q get network.$_w.ip4table)" ] && _need=1
+    [ -z "$(uci -q get network.$_w.multipath)" ] && _need=1
+    ! uci -q get network."${_w}_dev" >/dev/null 2>&1 && _need=1
+    if [ "$_need" = "1" ]; then
+      ensure_wan_path "$_w"
+      _changed=1
+    fi
+  done
+
+  for _d in $(ls /sys/class/net 2>/dev/null); do
+    case "$_d" in
+      lo|tun*|wg*|ifb*|sit*|gre*|teql*|ip6*|erspan*|br-*|wlan*|docker*|veth*|bonding_masters|dummy*|ap*|wwan*) continue ;;
+    esac
+    _type=$(cat /sys/class/net/"$_d"/type 2>/dev/null)
+    [ "$_type" = "1" ] || continue
+
+    _skip=0
+    for _u in $_used; do
+      [ -n "$_u" ] && [ "$_u" = "$_d" ] && _skip=1 && break
+    done
+    [ "$_skip" = "1" ] && continue
+
+    _wi=$(next_wan_name)
+    create_wan_basic "$_wi" "$_d" "on"
+    DISCOVERED_ADDED="${DISCOVERED_ADDED} ${_wi}:${_d}"
+    _used="$_used $_d"
+    _changed=1
+  done
+
+  DISCOVERED_ADDED=$(printf '%s' "$DISCOVERED_ADDED" | sed 's/^ //')
+  if [ "$_changed" = "1" ]; then
+    uci commit network
+    uci commit openmptcprouter
+    uci commit firewall
+    /etc/init.d/firewall reload >/dev/null 2>&1 || true
+    ubus call network reload >/dev/null 2>&1 || /etc/init.d/network reload >/dev/null 2>&1 || true
+    for _pair in $DISCOVERED_ADDED; do
+      _ni=${_pair%%:*}
+      [ -n "$_ni" ] && ifup "$_ni" >/dev/null 2>&1 || true
+    done
+    echo "$DISCOVERED_ADDED" > /tmp/omr-wan-added
+    logger -t omr-connect "discovered WANs: ${DISCOVERED_ADDED:-path-fix}"
+  fi
+  WANS=$(list_wans)
+}
+
+dev_assigned_wan() {
+  _dn="$1"
+  for _w in $(list_wans); do
+    [ "$(uci -q get network.$_w.device)" = "$_dn" ] && { printf '%s' "$_w"; return 0; }
+  done
+  [ "$(lan_device)" = "$_dn" ] && { printf 'lan'; return 0; }
+  printf ''
+}
+
 # ---------- status ----------
 status_json() {
+  discover_wans 0
+  WANS=$(list_wans)
   _wj=""
   _mp_ready=0; _net_ready=0; _mp_online=0
   for w in $WANS; do
@@ -227,6 +420,8 @@ status_json() {
 
 # ---------- config read ----------
 config_json() {
+  discover_wans 0
+  WANS=$(list_wans)
   _vip=$(uci -q get openmptcprouter.vps.ip | awk '{print $1}')
   [ -z "$_vip" ] && _vip=$(uci -q get glorytun-udp.vpn.host)
   _vuser=$(uci -q get openmptcprouter.vps.username)
@@ -254,11 +449,14 @@ config_json() {
 
   _devs=""
   for d in $(ls /sys/class/net 2>/dev/null); do
-    case "$d" in lo|tun*|wg*|ifb*|sit*|gre*|teql*|ip6*|erspan*|br-*|wlan*|docker*|veth*) continue ;; esac
+    case "$d" in lo|tun*|wg*|ifb*|sit*|gre*|teql*|ip6*|erspan*|br-*|wlan*|docker*|veth*|bonding_masters) continue ;; esac
+    _type=$(cat /sys/class/net/"$d"/type 2>/dev/null)
+    [ "$_type" = "1" ] || continue
     _mac=$(cat /sys/class/net/"$d"/address 2>/dev/null)
     _carr=0; [ -f /sys/class/net/"$d"/carrier ] && _carr=$(cat /sys/class/net/"$d"/carrier 2>/dev/null)
+    _asg=$(dev_assigned_wan "$d")
     [ -n "$_devs" ] && _devs="$_devs,"
-    _devs="$_devs{\"name\":\"$d\",\"mac\":\"$_mac\",\"carrier\":$_carr}"
+    _devs="$_devs{\"name\":\"$d\",\"mac\":\"$_mac\",\"carrier\":$_carr,\"assigned\":\"$_asg\"}"
   done
 
   _wj=""
@@ -604,16 +802,27 @@ set_wan() {
 
   N=$(printf '%s' "$I" | sed 's/wan//')
   MET=$((4 + N))
+  IP6T=$((60 + MET))
+  wan_dev_meta "$DEV"
 
   uci set network."$I"=interface
   uci set network."$I".device="$DEV"
   uci set network."$I".multipath="$MP"
-  uci set network."$I".defaultroute='1'
-  uci set network."$I".peerdns='1'
+  uci set network."$I".defaultroute='0'
+  uci set network."$I".delegate='0'
+  uci set network."$I".addlatency='0'
+  uci set network."$I".peerdns='0'
   uci set network."$I".ipv6='0'
   uci set network."$I".metric="$MET"
   uci set network."$I".ip4table="$MET"
+  uci set network."$I".ip6table="$IP6T"
   uci set network."$I".label="$I"
+  [ -n "$_modalias" ] && uci set network."$I".modalias="$_modalias"
+  [ -n "$_product" ] && uci set network."$I".product="$_product"
+
+  uci set network."${I}_dev"=device
+  uci set network."${I}_dev".name="$DEV"
+  uci set network."${I}_dev".txqueuelen='1000'
 
   # clear previous proto-specific options
   uci -q delete network."$I".ipaddr
@@ -651,6 +860,7 @@ set_wan() {
 
   uci set openmptcprouter."$I"=interface
   uci set openmptcprouter."$I".multipath="$MP"
+  uci set openmptcprouter."$I".metric="$MET"
   echo "$(uci -q get firewall.zone_wan.network)" | grep -qw "$I" || uci add_list firewall.zone_wan.network="$I"
 
   uci commit network
@@ -661,6 +871,41 @@ set_wan() {
   else ifdown "$I" >/dev/null 2>&1 || true; sleep 1; ifup "$I" >/dev/null 2>&1 || true
   fi
   ok_json setwan ',"i":"'"$I"'","dev":"'"$DEV"'","proto":"'"$PROTO"'","multipath":"'"$MP"'"'
+}
+
+add_wan_device() {
+  DEV=$(qget dev)
+  MP=$(qget multipath); [ -z "$MP" ] && MP=on
+  if [ -z "$DEV" ]; then err_json "device required"; return; fi
+  [ ! -d /sys/class/net/"$DEV" ] && { err_json "device not found"; return; }
+  _asg=$(dev_assigned_wan "$DEV")
+  if [ -n "$_asg" ]; then
+    ok_json addwan ",\"i\":\"$_asg\",\"dev\":\"$DEV\",\"existed\":true"
+    return
+  fi
+  I=$(next_wan_name)
+  create_wan_basic "$I" "$DEV" "$MP"
+  uci commit network
+  uci commit openmptcprouter
+  uci commit firewall
+  /etc/init.d/firewall reload >/dev/null 2>&1 || true
+  ubus call network reload >/dev/null 2>&1 || true
+  ifup "$I" >/dev/null 2>&1 || true
+  WANS=$(list_wans)
+  ok_json addwan ",\"i\":\"$I\",\"dev\":\"$DEV\",\"existed\":false"
+}
+
+scan_wans_action() {
+  rm -f /tmp/omr-wan-discover.ts
+  discover_wans 1
+  _added="${DISCOVERED_ADDED:-}"
+  _arr=""
+  for _pair in $_added; do
+    _ni=${_pair%%:*}; _nd=${_pair#*:}
+    [ -n "$_arr" ] && _arr="$_arr,"
+    _arr="$_arr{\"i\":\"$_ni\",\"dev\":\"$_nd\"}"
+  done
+  printf '{"ok":true,"a":"scanwans","added":[%s],"wans":"%s"}' "$_arr" "$(echo $WANS | tr ' ' ',')"
 }
 
 # ---------- LAN (exit / client side) ----------
@@ -780,6 +1025,8 @@ case "$A" in
   config)     config_json ;;
   setserver)  set_server ;;
   setwan)     set_wan ;;
+  addwan)     add_wan_device ;;
+  scanwans)   scan_wans_action ;;
   setsettings) set_settings ;;
   setlan)     set_lan ;;
   setbond)    set_bond ;;
