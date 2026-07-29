@@ -33,8 +33,14 @@ VER_FILE="/www/omr-dash/VERSION"
 LOCAL_VER=$(cat "$VER_FILE" 2>/dev/null | tr -d ' \r\n'); [ -z "$LOCAL_VER" ] && LOCAL_VER="0"
 
 fetch() {
-  if command -v curl >/dev/null 2>&1; then curl -fsSL -m 25 "$1"
-  else uclient-fetch -q -T 25 -O - "$1"; fi
+  if command -v curl >/dev/null 2>&1; then curl -fsSL -m 45 "$1"
+  else uclient-fetch -q -T 45 -O - "$1"; fi
+}
+fetch_insecure() {
+  # HTTPS with self-signed VPS admin cert
+  if command -v curl >/dev/null 2>&1; then curl -fskL -m 20 "$@"
+  elif command -v wget >/dev/null 2>&1; then wget -qO- --no-check-certificate -T 20 "$@"
+  else return 1; fi
 }
 json_str() {
   printf '"'
@@ -46,6 +52,7 @@ ping_ms() {
   printf '%s' "$_o" | sed -n 's/.*time=\([0-9.]*\).*/\1/p' | head -1
 }
 ok_json() { printf '{"ok":true,"a":"%s"%s}' "$1" "${2:-}"; }
+err_json() { printf '{"ok":false,"error":%s%s}' "$(json_str "$1")" "${2:-}"; }
 
 # ---------- status ----------
 status_json() {
@@ -274,18 +281,20 @@ set_bond() {
   ok_json setbond ',"profile":"'"$PROF"'","scheduler":"'"$SCHED"'","master":"'"$MASTER"'","keepalive":"'"$KA"'"'
 }
 
-# ---------- set server ----------
+# ---------- set server + auto-fetch keys ----------
 set_server() {
   HOST=$(qget host)
   TOKEN=$(qget token)
   PORT=$(qget port); [ -z "$PORT" ] && PORT=65500
   USER=$(qget user); [ -z "$USER" ] && USER=openmptcprouter
-  if [ -z "$HOST" ]; then printf '{"ok":false,"error":"host required"}'; return; fi
+  if [ -z "$HOST" ]; then err_json "host required"; return; fi
+  if [ -z "$TOKEN" ]; then TOKEN=$(uci -q get openmptcprouter.vps.password); fi
+  if [ -z "$TOKEN" ]; then err_json "server key required"; return; fi
 
-  uci -q delete openmptcprouter.vps.ip
+  uci -q delete openmptcprouter.vps.ip || true
   uci add_list openmptcprouter.vps.ip="$HOST"
   uci set openmptcprouter.vps.username="$USER"
-  [ -n "$TOKEN" ] && uci set openmptcprouter.vps.password="$TOKEN"
+  uci set openmptcprouter.vps.password="$TOKEN"
   uci set openmptcprouter.vps.port="$PORT"
   uci set openmptcprouter.vps.get_config='1'
   uci set openmptcprouter.vps.set_firewall='1'
@@ -295,6 +304,7 @@ set_server() {
   uci set openmptcprouter.settings.vpn='glorytun_udp'
   uci set openmptcprouter.settings.proxy='shadowsocks-rust'
   uci set openmptcprouter.settings.mptcpovervpn='none'
+  uci set openmptcprouter.settings.disableserverping='0'
 
   uci set glorytun-udp.vpn.enable='1'
   uci set glorytun-udp.vpn.host="$HOST"
@@ -303,6 +313,72 @@ set_server() {
 
   uci set shadowsocks-rust.sss0.server="$HOST"
   uci -q set shadowsocks-rust.sss0.disabled='0'
+
+  # --- pull token + config from VPS admin API (HTTPS then HTTP) ---
+  KEYS_OK=0
+  GT_OK=0
+  SS_OK=0
+  MSG=""
+  CFG=/tmp/omr-vps-cfg.json
+  TOKFILE=/tmp/omr-vps-tok.json
+  rm -f "$CFG" "$TOKFILE"
+  for SCHEME in https http; do
+    BASE="$SCHEME://$HOST:$PORT"
+    if command -v curl >/dev/null 2>&1; then
+      curl -sk -m 20 -X POST "$BASE/token" \
+        -d "username=$USER&password=$TOKEN" > "$TOKFILE" 2>/dev/null || true
+    elif command -v wget >/dev/null 2>&1; then
+      wget -qO "$TOKFILE" --no-check-certificate -T 20 \
+        --post-data="username=$USER&password=$TOKEN" "$BASE/token" 2>/dev/null || true
+    fi
+    ACCESS=$(sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$TOKFILE" 2>/dev/null | head -1)
+    [ -z "$ACCESS" ] && continue
+    if command -v curl >/dev/null 2>&1; then
+      curl -sk -m 25 -H "Authorization: Bearer $ACCESS" "$BASE/config" > "$CFG" 2>/dev/null || true
+    elif command -v wget >/dev/null 2>&1; then
+      wget -qO "$CFG" --no-check-certificate -T 25 \
+        --header="Authorization: Bearer $ACCESS" "$BASE/config" 2>/dev/null || true
+    fi
+    [ -s "$CFG" ] && grep -q '"glorytun"' "$CFG" 2>/dev/null && break
+  done
+
+  if [ -s "$CFG" ] && grep -q '"glorytun"' "$CFG" 2>/dev/null; then
+    KEYS_OK=1
+    GTKEY=$(jsonfilter -i "$CFG" -e '@.glorytun.key' 2>/dev/null)
+    GTPORT=$(jsonfilter -i "$CFG" -e '@.glorytun.port' 2>/dev/null)
+    GTPEER=$(jsonfilter -i "$CFG" -e '@.glorytun.udp.host_ip' 2>/dev/null)
+    GTCHA=$(jsonfilter -i "$CFG" -e '@.glorytun.chacha' 2>/dev/null)
+    if [ -n "$GTKEY" ]; then
+      uci set glorytun-udp.vpn.key="$GTKEY"
+      [ -n "$GTPORT" ] && uci set glorytun-udp.vpn.port="$GTPORT"
+      [ -n "$GTPEER" ] && uci set glorytun-udp.vpn.remoteip="$GTPEER"
+      if [ "$GTCHA" = "true" ] || [ "$GTCHA" = "1" ]; then
+        uci set glorytun-udp.vpn.chacha20='1'
+      fi
+      GT_OK=1
+    fi
+
+    # prefer shadowsocks-rust (2022) from xray.config, else classic shadowsocks
+    SSRKEY=$(jsonfilter -i "$CFG" -e '@.xray.config.sskey' 2>/dev/null)
+    SSRMETHOD=$(jsonfilter -i "$CFG" -e '@.xray.config.ss_method' 2>/dev/null)
+    SSPORT=$(jsonfilter -i "$CFG" -e '@.shadowsocks.port' 2>/dev/null)
+    SSKEY=$(jsonfilter -i "$CFG" -e '@.shadowsocks.key' 2>/dev/null)
+    SSMETHOD=$(jsonfilter -i "$CFG" -e '@.shadowsocks.method' 2>/dev/null)
+    if [ -n "$SSRKEY" ]; then
+      uci set shadowsocks-rust.sss0.password="$SSRKEY"
+      [ -n "$SSRMETHOD" ] && uci set shadowsocks-rust.sss0.method="$SSRMETHOD"
+      uci set shadowsocks-rust.sss0.server_port='65280'
+      SS_OK=1
+    elif [ -n "$SSKEY" ]; then
+      uci set shadowsocks-rust.sss0.password="$SSKEY"
+      [ -n "$SSMETHOD" ] && uci set shadowsocks-rust.sss0.method="$SSMETHOD"
+      [ -n "$SSPORT" ] && uci set shadowsocks-rust.sss0.server_port="$SSPORT"
+      SS_OK=1
+    fi
+    MSG="keys fetched from API"
+  else
+    MSG="API unreachable — saved login; openmptcprouter-vps will retry get_config"
+  fi
 
   uci commit openmptcprouter
   uci commit glorytun-udp
@@ -315,7 +391,40 @@ set_server() {
   ifup omrvpn >/dev/null 2>&1 || true
   /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1 || true
 
-  ok_json setserver ',"host":"'"$HOST"'","port":"'"$PORT"'"'
+  ok_json setserver ",\"host\":\"$HOST\",\"port\":\"$PORT\",\"keys_ok\":$KEYS_OK,\"glorytun\":$GT_OK,\"shadowsocks\":$SS_OK,\"msg\":$(json_str "$MSG")"
+}
+
+# ---------- OTA update ----------
+do_update() {
+  CB=$(date +%s)
+  SCRIPT=/tmp/omr-ota-install.sh
+  LOGF=/tmp/omr-ota.log
+  rm -f "$SCRIPT" "$LOGF"
+  OLD="$LOCAL_VER"
+  if ! fetch "$OTA_RAW/install.sh?t=$CB" > "$SCRIPT" 2>"$LOGF"; then
+    # fallback without query string (some fetchers dislike ?)
+    if ! fetch "$OTA_RAW/install.sh" > "$SCRIPT" 2>>"$LOGF"; then
+      err_json "download failed" ",\"log\":$(json_str "$(cat "$LOGF" 2>/dev/null)")"
+      return
+    fi
+  fi
+  if [ ! -s "$SCRIPT" ]; then
+    err_json "empty install script"; return
+  fi
+  sed -i 's/\r$//' "$SCRIPT" 2>/dev/null || true
+  chmod +x "$SCRIPT"
+  sh "$SCRIPT" >"$LOGF" 2>&1
+  RC=$?
+  NEW=$(cat "$VER_FILE" 2>/dev/null | tr -d ' \r\n')
+  [ -z "$NEW" ] && NEW="$OLD"
+  if [ "$RC" -ne 0 ] && [ "$NEW" = "$OLD" ]; then
+    err_json "update failed" ",\"version\":\"$NEW\",\"log\":$(json_str "$(tail -c 1500 "$LOGF" 2>/dev/null)")"
+    return
+  fi
+  # bust LuCI caches again
+  rm -rf /tmp/luci-* /tmp/luci-indexcache* 2>/dev/null || true
+  /etc/init.d/uhttpd reload >/dev/null 2>&1 || true
+  printf '{"ok":true,"a":"update","version":"%s","old":"%s","log":%s}' "$NEW" "$OLD" "$(json_str "$(tail -c 1200 "$LOGF" 2>/dev/null)")"
 }
 
 # ---------- set WAN / broadband ----------
@@ -481,11 +590,11 @@ case "$A" in
               /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1; ok_json reconnect ;;
   exitip)     _e=$(uclient-fetch -q -T 8 -O - http://ip.openmptcprouter.com 2>/dev/null)
               printf '{"ok":true,"exit_ip":"%s"}' "$_e" ;;
-  version)    _r=$(fetch "$OTA_RAW/VERSION" 2>/dev/null | tr -d ' \r\n')
-              printf '{"ok":true,"local":"%s","remote":"%s"}' "$LOCAL_VER" "$_r" ;;
-  update)     _log=$(fetch "$OTA_RAW/install.sh" 2>/dev/null | sh 2>&1)
-              _nv=$(cat "$VER_FILE" 2>/dev/null | tr -d ' \r\n')
-              printf '{"ok":true,"a":"update","version":"%s","log":%s}' "$_nv" "$(json_str "$_log")" ;;
+  version)    _r=$(fetch "$OTA_RAW/VERSION?t=$(date +%s)" 2>/dev/null | tr -d ' \r\n')
+              [ -z "$_r" ] && _r=$(fetch "$OTA_RAW/VERSION" 2>/dev/null | tr -d ' \r\n')
+              printf '{"ok":true,"local":"%s","remote":"%s","update_available":%s}' \
+                "$LOCAL_VER" "$_r" "$([ -n "$_r" ] && [ "$_r" != "$LOCAL_VER" ] && echo true || echo false)" ;;
+  update)     do_update ;;
   config)     config_json ;;
   setserver)  set_server ;;
   setwan)     set_wan ;;
