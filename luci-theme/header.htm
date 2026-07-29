@@ -1,0 +1,71 @@
+<%#
+  OMR Connect — custom LuCI theme header (replaces OpenMPTCProuter branding)
+-%>
+<%
+	local sys  = require "luci.sys"
+	local util = require "luci.util"
+	local http = require "luci.http"
+	local disp = require "luci.dispatcher"
+
+	local boardinfo = util.ubus("system", "board")
+	local node = disp.context.dispatched
+	http.prepare_content("text/html")
+
+	local brand = luci.model.uci.cursor():get("openmptcprouter","settings","menu") or "OMR Connect"
+	local current_omr_version = luci.model.uci.cursor():get("openmptcprouter","settings","version") or ""
+	local latest_omr_version = luci.model.uci.cursor():get("openmptcprouter","latest_versions","omr") or ""
+-%>
+<!DOCTYPE html>
+<html lang="<%=luci.i18n.context.lang%>" dir="<%= (luci.i18n.context.lang == 'ar') and 'rtl' or 'ltr' %>">
+	<head>
+		<meta charset="utf-8">
+		<title><%=striptags( (boardinfo.hostname or brand) .. ( (node and node.title) and ' - ' .. translate(node.title) or '')) %></title>
+		<meta name="viewport" content="initial-scale=1.0">
+		<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+		<meta http-equiv="Pragma" content="no-cache" />
+		<meta http-equiv="Expires" content="0" />
+		<link rel="stylesheet" href="<%=media%>/cascade.css?v=omrc-1">
+		<link rel="stylesheet" media="only screen and (max-device-width: 854px)" href="<%=media%>/mobile.css?v=omrc-1" type="text/css" />
+		<link rel="stylesheet" href="<%=media%>/omr-connect.css?v=1.0.0">
+		<link rel="shortcut icon" type="image/png" href="<%=media%>/favicon.png">
+		<link rel="apple-touch-icon" href="<%=media%>/omr-logo-apple.png">
+		<% if node and node.css then %>
+			<link rel="stylesheet" href="<%=resource%>/<%=node.css%>">
+		<% end -%>
+		<% if css then %>
+			<style title="text/css"><%= css %></style>
+		<% end -%>
+		<script src="<%=url('admin/translations', luci.i18n.context.lang)%>?v=omrc-1"></script>
+		<script src="<%=resource%>/cbi.js?v=omrc-1"></script>
+	</head>
+
+	<body class="lang_<%=luci.i18n.context.lang%> omr-connect <% if node then %><%= striptags( node.title ) %><%- end %>" data-page="<%= table.concat(disp.context.requestpath, "-") %>">
+		<header>
+			<div class="fill">
+				<div class="container">
+					<a class="brand" href="<%=url("admin/system/" .. brand:lower() .. "/status")%>"><span class="brand-mark">OC</span> <%=brand%></a>
+					<ul class="nav" id="topmenu" style="display:none"></ul>
+					<div id="indicators" class="pull-right"></div>
+				</div>
+			</div>
+		</header>
+
+		<div id="maincontent" class="container">
+			<%- if luci.sys.process.info("uid") == 0 and luci.sys.user.getuser("root") and not luci.sys.user.getpasswd("root") then -%>
+				<div class="alert-message warning">
+					<h4><%:No password set!%></h4>
+					<p><%:There is no password set on this router. Please configure a root password to protect the web interface.%></p>
+					<% if disp.lookup("admin/system/admin") then %>
+						<div class="right"><a class="btn" href="<%=url("admin/system/admin")%>"><%:Go to password configuration...%></a></div>
+					<% end %>
+				</div>
+			<%- end -%>
+
+			<noscript>
+				<div class="alert-message warning">
+					<h4><%:JavaScript required!%></h4>
+					<p><%:You must enable JavaScript in your browser or LuCI will not work properly.%></p>
+				</div>
+			</noscript>
+
+			<div id="tabmenu" style="display:none"></div>

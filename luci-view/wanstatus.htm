@@ -1,0 +1,158 @@
+<%#
+  OMR Connect — replaces the original OpenMPTCProuter Status (wanstatus) page.
+  Lives inside LuCI (same menus/theme), uses /cgi-bin/omr-api for fast live checks.
+-%>
+<%+header%>
+<%
+local ucic = luci.model.uci.cursor()
+local menuentry = ucic:get("openmptcprouter","settings","menu") or "OMR Connect"
+%>
+<div class="oc-hero">
+  <div class="state">
+    <div class="oc-orb warn" id="oc-orb">…</div>
+    <div>
+      <h2 id="oc-title">جاري الفحص…</h2>
+      <p id="oc-desc"><%=menuentry%> · نفحص الوصلات والسيرفر والنفق</p>
+    </div>
+  </div>
+  <button class="oc-btn" id="oc-reconnect" type="button">
+    <span>🔄</span><span>توصيل / إعادة الاتصال</span>
+  </button>
+</div>
+
+<div class="oc-advice" id="oc-advice"></div>
+<div class="oc-grid" id="oc-grid"></div>
+
+<div class="oc-card" style="margin-bottom:14px">
+  <h3><span class="oc-dot ok"></span>التحديثات عبر GitHub</h3>
+  <div class="oc-meta">الإصدار الحالي: <b id="oc-curVer">—</b> · آخر إصدار: <span id="oc-remoteVer">اضغط «تحقق»</span></div>
+  <div class="oc-cardbtns" style="max-width:420px">
+    <button class="oc-btn ghost" type="button" id="oc-check">تحقق من التحديثات</button>
+    <button class="oc-btn" type="button" id="oc-update" style="display:none">تحديث الآن</button>
+  </div>
+</div>
+
+<div class="oc-toast" id="oc-toast"></div>
+
+<script type="text/javascript">//<![CDATA[
+(function(){
+  var busy=false, timer=null;
+  function $(id){ return document.getElementById(id); }
+  function toast(m){
+    var t=$('oc-toast'); t.textContent=m; t.classList.add('show');
+    clearTimeout(t._h); t._h=setTimeout(function(){ t.classList.remove('show'); }, 2600);
+  }
+  function api(a,i){
+    var u='/cgi-bin/omr-api?a='+encodeURIComponent(a)+(i?'&i='+encodeURIComponent(i):'');
+    return fetch(u,{cache:'no-store'}).then(function(r){ return r.json(); });
+  }
+  function pill(ok,okT,badT,warn){
+    if(ok) return '<span class="oc-pill ok">'+okT+'</span>';
+    if(warn) return '<span class="oc-pill warn">'+badT+'</span>';
+    return '<span class="oc-pill bad">'+badT+'</span>';
+  }
+  function render(d){
+    var cards='', wanUp=0;
+    (d.wans||[]).forEach(function(w,idx){
+      if(w.net) wanUp++;
+      var cls='bad', txt='غير متصلة';
+      if(w.net){cls='ok';txt='متصلة بالإنترنت';}
+      else if(w.link){cls='warn';txt='الكيبل متصل، بلا إنترنت';}
+      else if(w.up){cls='warn';txt='مفعّلة، بلا كيبل';}
+      cards += '<div class="oc-card">'
+        +'<h3><span class="oc-dot '+cls+'"></span>الوصلة '+(idx+1)+' ('+w.name+')</h3>'
+        +'<div class="oc-meta">'+(w.dev||'-')+' · '+(w.proto||'')+'</div>'
+        +'<div class="oc-row"><span>الحالة</span>'+pill(w.net,'إنترنت',txt,w.link||w.up)+'</div>'
+        +'<div class="oc-row"><span>عنوان IP</span><span>'+(w.ip||'—')+'</span></div>'
+        +'<div class="oc-row"><span>الكيبل</span><span>'+(w.link?('نعم'+(w.speed?' · '+w.speed+'Mb':'')):'لا يوجد')+'</span></div>'
+        +'<div class="oc-row"><span>زمن الاستجابة</span><span>'+(w.lat?w.lat+' ms':'—')+'</span></div>'
+        +'<div class="oc-cardbtns">'
+        +'<button class="oc-btn" type="button" data-a="wanup" data-i="'+w.name+'" data-l="تشغيل '+w.name+'">تشغيل</button>'
+        +'<button class="oc-btn ghost" type="button" data-a="wanrestart" data-i="'+w.name+'" data-l="إعادة '+w.name+'">إعادة</button>'
+        +'<button class="oc-btn ghost" type="button" data-a="wandown" data-i="'+w.name+'" data-l="إيقاف '+w.name+'">إيقاف</button>'
+        +'</div></div>';
+    });
+    var v=d.vps||{}, t=d.tunnel||{}, p=d.proxy||{};
+    cards += '<div class="oc-card"><h3><span class="oc-dot '+(v.reachable?'ok':'bad')+'"></span>السيرفر البعيد (VPS)</h3>'
+      +'<div class="oc-meta">'+(v.host||'-')+'</div>'
+      +'<div class="oc-row"><span>الوصول</span>'+pill(v.reachable,'يعمل','لا يصل')+'</div>'
+      +'<div class="oc-row"><span>زمن الاستجابة</span><span>'+(v.lat?v.lat+' ms':'—')+'</span></div></div>';
+    cards += '<div class="oc-card"><h3><span class="oc-dot '+(t.up?'ok':'bad')+'"></span>النفق المشفّر (VPN)</h3>'
+      +'<div class="oc-meta">'+(t.dev||'tun0')+' → '+(t.peer||'')+'</div>'
+      +'<div class="oc-row"><span>الحالة</span>'+pill(t.up,'يعمل','متوقف',t.service)+'</div>'
+      +'<div class="oc-row"><span>زمن الاستجابة</span><span>'+(t.lat?t.lat+' ms':'—')+'</span></div>'
+      +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="vpn" data-l="إعادة تشغيل النفق">إعادة تشغيل النفق</button></div></div>';
+    cards += '<div class="oc-card"><h3><span class="oc-dot '+(p.running?'ok':'bad')+'"></span>موجّه البيانات (Proxy)</h3>'
+      +'<div class="oc-meta">'+(p.name||'')+'</div>'
+      +'<div class="oc-row"><span>الحالة</span>'+pill(p.running,'يعمل','متوقف')+'</div>'
+      +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="proxy" data-l="إعادة تشغيل الموجّه">إعادة التشغيل</button></div></div>';
+    $('oc-grid').innerHTML=cards;
+
+    var problems=[];
+    if(!v.reachable) problems.push({lvl:'bad',t:'السيرفر البعيد لا يستجيب',d:'تأكد أن وصلة واحدة على الأقل تعمل، ثم اضغط «توصيل / إعادة الاتصال».'});
+    if(v.reachable && !t.up) problems.push({lvl:'bad',t:'النفق المشفّر متوقف',d:'اضغط «إعادة تشغيل النفق».'});
+    if(t.up && !p.running) problems.push({lvl:'warn',t:'موجّه البيانات متوقف',d:'اضغط «إعادة التشغيل» في بطاقة الموجّه.'});
+    (d.wans||[]).forEach(function(w,idx){
+      if(!w.link && !w.up) problems.push({lvl:'warn',t:'الوصلة '+(idx+1)+' غير موصولة',d:'وصّل كيبل الشبكة/الـUSB وتأكد من المنفذ.'});
+      else if(w.link && !w.net) problems.push({lvl:'warn',t:'الوصلة '+(idx+1)+' بلا إنترنت',d:'الكيبل متصل لكن المصدر بلا إنترنت. جرّب «إعادة».'});
+    });
+    var healthy = v.reachable && t.up && p.running && wanUp>=1;
+    var orb=$('oc-orb');
+    if(healthy){ orb.className='oc-orb ok'; orb.textContent='✓'; $('oc-title').textContent='كل شيء يعمل'; $('oc-desc').textContent=wanUp+' وصلة متصلة · النفق والسيرفر يعملان'; }
+    else if(problems.some(function(x){return x.lvl==='bad';})){ orb.className='oc-orb bad'; orb.textContent='!'; $('oc-title').textContent='يوجد مشكلة في الاتصال'; $('oc-desc').textContent='راجع التنبيهات أو اضغط إعادة الاتصال'; }
+    else { orb.className='oc-orb warn'; orb.textContent='!'; $('oc-title').textContent='يعمل مع ملاحظات'; $('oc-desc').textContent='الاتصال الأساسي يعمل، لكن هناك تحسينات ممكنة'; }
+    if(!problems.length){
+      $('oc-advice').innerHTML='<div class="oc-alert ok"><b>لا توجد مشاكل</b>النظام يعمل بشكل سليم.</div>';
+    } else {
+      $('oc-advice').innerHTML=problems.map(function(pr){
+        return '<div class="oc-alert '+pr.lvl+'"><b>'+pr.t+'</b>'+pr.d+'</div>';
+      }).join('');
+    }
+    if(d.version) $('oc-curVer').textContent=d.version;
+  }
+  function load(){
+    api('status').then(render).catch(function(){
+      $('oc-orb').className='oc-orb bad'; $('oc-title').textContent='تعذّر الاتصال بالراوتر';
+    });
+  }
+  function doAction(a,label,i){
+    if(busy) return; busy=true;
+    var btns=document.querySelectorAll('.oc-btn');
+    btns.forEach(function(b){ b.disabled=true; });
+    var wait=(a==='wanup'||a==='wandown')?2500:6000;
+    api(a,i).then(function(){
+      toast('تم: '+label+' — جاري التحديث');
+      setTimeout(load, wait);
+    }).catch(function(){ toast('فشل تنفيذ: '+label); })
+    .finally(function(){
+      setTimeout(function(){ busy=false; btns.forEach(function(b){ b.disabled=false; }); }, wait+100);
+    });
+  }
+  document.addEventListener('click', function(ev){
+    var b=ev.target.closest('[data-a]');
+    if(b){ doAction(b.getAttribute('data-a'), b.getAttribute('data-l')||'', b.getAttribute('data-i')||''); }
+  });
+  $('oc-reconnect').onclick=function(){ doAction('reconnect','إعادة الاتصال بالكامل'); };
+  $('oc-check').onclick=function(){
+    $('oc-remoteVer').textContent='جاري الفحص…';
+    api('version').then(function(d){
+      $('oc-curVer').textContent=d.local||'—';
+      $('oc-remoteVer').textContent=d.remote||'غير معروف';
+      if(d.remote && d.local && d.remote!==d.local){ $('oc-update').style.display=''; toast('يتوفر تحديث جديد: '+d.remote); }
+      else { $('oc-update').style.display='none'; if(d.remote) toast('أنت على أحدث إصدار'); }
+    }).catch(function(){ $('oc-remoteVer').textContent='فشل الفحص (تأكد من الإنترنت)'; });
+  };
+  $('oc-update').onclick=function(){
+    if(busy) return; busy=true;
+    var b=$('oc-update'); var old=b.innerHTML;
+    b.innerHTML='<span class="oc-spin"></span><span>جاري التحديث…</span>';
+    api('update').then(function(d){
+      toast('تم التحديث إلى '+(d.version||'')+' — إعادة تحميل');
+      setTimeout(function(){ location.reload(); }, 2800);
+    }).catch(function(){ toast('فشل التحديث'); b.innerHTML=old; busy=false; });
+  };
+  load();
+  timer=setInterval(load,7000);
+})();
+//]]></script>
+<%+footer%>

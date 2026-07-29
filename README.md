@@ -1,29 +1,36 @@
-# OMR Dashboard
+# OMR Connect
 
-A modern, lightweight control panel for OpenMPTCProuter (OMR) that runs **inside the router**.
-It focuses on easy connectivity: live status of every WAN, the VPS, the VPN tunnel and the
-proxy, plus one-click connect / reconnect actions and plain-language problem hints.
+Custom **base LuCI edition** for OpenMPTCProuter — not a parallel page.
 
-Open it at: `http://192.168.100.1/` (auto-opens) or `http://192.168.100.1/omr-dash/`
+This package **replaces** the stock OpenMPTCProuter Status page, theme header/footer,
+and branding inside the router firmware UI. Updates ship over GitHub.
 
-## Install / Update (on the router over SSH)
+## What changes inside the system
+
+- LuCI theme branding → **Connect**
+- Status page (`wanstatus`) → modern connect dashboard (WANs / VPS / VPN / Proxy + one-click reconnect)
+- Default menu landing → Status (instead of Wizard)
+- Root URL `http://ROUTER/` → opens the LuCI Connect Status page
+- GitHub OTA updates from this repo
+
+## Install / Update (on the router)
 
 ```sh
 wget -qO- https://raw.githubusercontent.com/mmlktahmd4-cmd/omr-dashboard/main/install.sh | sh
 ```
 
-You can also update from inside the dashboard: **التحديثات عبر GitHub → تحقق من التحديثات → تحديث الآن**.
+Or from the Status page: **التحديثات عبر GitHub → تحقق → تحديث الآن**.
 
 ## Contents
 
-- `omr-dash/index.html` — the dashboard UI (Arabic, RTL).
-- `cgi-bin/omr-api` — shell CGI backend (status + actions + OTA update).
-- `www-index.html` — landing page that auto-redirects to the dashboard.
-- `install.sh` — installer / updater (used by the "Update now" button too).
-- `VERSION` — current version; the dashboard compares it against this file to detect updates.
+| Path | Role |
+|------|------|
+| `luci-theme/` | LuCI header/footer + `omr-connect.css` overlay |
+| `luci-view/wanstatus.htm` | Replaces original OMR Status page |
+| `cgi-bin/omr-api` | Fast status/actions/OTA backend |
+| `install.sh` | Applies all of the above into the live system |
+| `VERSION` | Bump this when publishing updates |
 
-## How updates work
+## Version
 
-The dashboard reads its local version from `/www/omr-dash/VERSION` and compares it to the
-`VERSION` file in this repo. Pressing **تحديث الآن** downloads `install.sh` from `main` and runs
-it, which refreshes every file (including the API itself). Bump `VERSION` when you publish changes.
+Current: see `VERSION`.

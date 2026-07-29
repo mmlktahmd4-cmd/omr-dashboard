@@ -1,0 +1,191 @@
+/* OMR Connect — LuCI theme overlay (loads after cascade.css) */
+:root{
+  --oc-bg:#0b1220;
+  --oc-card:#151d31;
+  --oc-card2:#1c2740;
+  --oc-line:#28324c;
+  --oc-txt:#e8edf7;
+  --oc-mut:#93a0bd;
+  --oc-accent:#3b82f6;
+  --oc-ok:#22c55e;
+  --oc-warn:#f59e0b;
+  --oc-bad:#ef4444;
+  --oc-radius:14px;
+}
+
+body.omr-connect{
+  background:radial-gradient(1200px 600px at 80% -10%,#16244a 0%,var(--oc-bg) 55%) !important;
+  color:var(--oc-txt) !important;
+  font-family:system-ui,"Segoe UI",Tahoma,Arial,sans-serif !important;
+}
+
+body.omr-connect header,
+body.omr-connect header .fill{
+  background:rgba(11,18,32,.92) !important;
+  border-bottom:1px solid var(--oc-line) !important;
+  box-shadow:none !important;
+}
+body.omr-connect header .brand{
+  color:var(--oc-txt) !important;
+  font-weight:800 !important;
+  font-size:17px !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  gap:10px !important;
+  text-decoration:none !important;
+}
+body.omr-connect .brand-mark{
+  width:30px;height:30px;border-radius:9px;
+  background:linear-gradient(135deg,#3b82f6,#22d3ee);
+  color:#04122b;display:inline-grid;place-items:center;
+  font-size:11px;font-weight:900;letter-spacing:.3px;
+}
+body.omr-connect header .nav > li > a,
+body.omr-connect #indicators,
+body.omr-connect #indicators *{
+  color:var(--oc-mut) !important;
+}
+body.omr-connect header .nav > li > a:hover,
+body.omr-connect header .nav > li.active > a{
+  color:#fff !important;
+  background:rgba(59,130,246,.18) !important;
+  border-radius:10px !important;
+}
+
+body.omr-connect #maincontent.container{
+  max-width:1100px !important;
+  padding:18px 14px 40px !important;
+}
+body.omr-connect .cbi-map,
+body.omr-connect .cbi-section,
+body.omr-connect fieldset,
+body.omr-connect .panel-title,
+body.omr-connect table,
+body.omr-connect .table{
+  background:var(--oc-card) !important;
+  border:1px solid var(--oc-line) !important;
+  border-radius:var(--oc-radius) !important;
+  color:var(--oc-txt) !important;
+  box-shadow:none !important;
+}
+body.omr-connect h2,
+body.omr-connect h3,
+body.omr-connect h4,
+body.omr-connect legend,
+body.omr-connect .panel-title,
+body.omr-connect td,
+body.omr-connect th,
+body.omr-connect label,
+body.omr-connect .cbi-value-title{
+  color:var(--oc-txt) !important;
+}
+body.omr-connect .cbi-value-description,
+body.omr-connect .muted,
+body.omr-connect small{
+  color:var(--oc-mut) !important;
+}
+body.omr-connect a{ color:#7dd3fc !important; }
+body.omr-connect input,
+body.omr-connect select,
+body.omr-connect textarea{
+  background:#0f172a !important;
+  border:1px solid var(--oc-line) !important;
+  color:var(--oc-txt) !important;
+  border-radius:10px !important;
+}
+body.omr-connect .btn,
+body.omr-connect .cbi-button,
+body.omr-connect input[type=submit],
+body.omr-connect input[type=button],
+body.omr-connect button{
+  background:linear-gradient(135deg,var(--oc-accent),#2563eb) !important;
+  border:0 !important;
+  color:#fff !important;
+  border-radius:12px !important;
+  font-weight:700 !important;
+  box-shadow:none !important;
+}
+body.omr-connect .cbi-button-reset,
+body.omr-connect .cbi-button-neutral{
+  background:#1e2942 !important;
+  border:1px solid var(--oc-line) !important;
+}
+body.omr-connect .alert-message{
+  border-radius:12px !important;
+  border:1px solid var(--oc-line) !important;
+  background:var(--oc-card2) !important;
+  color:var(--oc-txt) !important;
+}
+body.omr-connect .alert-message.warning{
+  background:rgba(245,158,11,.12) !important;
+  border-color:rgba(245,158,11,.35) !important;
+}
+body.omr-connect footer{
+  background:transparent !important;
+  border:0 !important;
+  color:var(--oc-mut) !important;
+  text-align:center !important;
+  padding:18px 10px 28px !important;
+}
+body.omr-connect footer .omr-foot{ margin-inline-end:8px; }
+
+/* Tabs under pages */
+body.omr-connect #tabmenu > ul > li > a{
+  background:var(--oc-card) !important;
+  color:var(--oc-mut) !important;
+  border:1px solid var(--oc-line) !important;
+  border-radius:10px 10px 0 0 !important;
+}
+body.omr-connect #tabmenu > ul > li.active > a,
+body.omr-connect #tabmenu > ul > li > a:hover{
+  background:var(--oc-card2) !important;
+  color:#fff !important;
+}
+
+/* Connect dashboard cards */
+.oc-hero{
+  background:linear-gradient(135deg,var(--oc-card2),var(--oc-card));
+  border:1px solid var(--oc-line);border-radius:var(--oc-radius);
+  padding:18px;margin:0 0 14px;display:flex;align-items:center;
+  justify-content:space-between;gap:14px;flex-wrap:wrap;
+}
+.oc-hero .state{display:flex;align-items:center;gap:12px}
+.oc-orb{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;font-size:24px;font-weight:800}
+.oc-orb.ok{background:rgba(34,197,94,.15);color:var(--oc-ok)}
+.oc-orb.warn{background:rgba(245,158,11,.15);color:var(--oc-warn)}
+.oc-orb.bad{background:rgba(239,68,68,.15);color:var(--oc-bad)}
+.oc-hero h2{margin:0 0 4px;font-size:18px}
+.oc-hero p{margin:0;color:var(--oc-mut);font-size:13px}
+.oc-btn{
+  border:0;cursor:pointer;border-radius:12px;padding:12px 18px;font-size:14px;font-weight:700;
+  color:#fff;background:linear-gradient(135deg,var(--oc-accent),#2563eb);
+  display:inline-flex;align-items:center;gap:8px;
+}
+.oc-btn:disabled{opacity:.55;cursor:default}
+.oc-btn.ghost{background:#1e2942;border:1px solid var(--oc-line)}
+.oc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:14px}
+.oc-card{background:var(--oc-card);border:1px solid var(--oc-line);border-radius:var(--oc-radius);padding:15px}
+.oc-card h3{margin:0 0 2px;font-size:15px;display:flex;align-items:center;gap:8px}
+.oc-meta{color:var(--oc-mut);font-size:12px;margin:0 0 10px}
+.oc-row{display:flex;justify-content:space-between;font-size:13px;margin:5px 0}
+.oc-row span:first-child{color:var(--oc-mut)}
+.oc-pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
+.oc-pill.ok{background:rgba(34,197,94,.16);color:#4ade80}
+.oc-pill.bad{background:rgba(239,68,68,.16);color:#f87171}
+.oc-pill.warn{background:rgba(245,158,11,.16);color:#fbbf24}
+.oc-dot{width:9px;height:9px;border-radius:50%;display:inline-block;background:var(--oc-mut)}
+.oc-dot.ok{background:var(--oc-ok);box-shadow:0 0 10px var(--oc-ok)}
+.oc-dot.bad{background:var(--oc-bad);box-shadow:0 0 10px var(--oc-bad)}
+.oc-dot.warn{background:var(--oc-warn);box-shadow:0 0 10px var(--oc-warn)}
+.oc-advice{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.oc-alert{border-radius:12px;padding:12px 14px;font-size:13.5px}
+.oc-alert.bad{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3)}
+.oc-alert.warn{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3)}
+.oc-alert.ok{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.28)}
+.oc-alert b{display:block;margin-bottom:2px}
+.oc-cardbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.oc-cardbtns .oc-btn{padding:9px 12px;font-size:12.5px;flex:1;justify-content:center}
+.oc-spin{width:15px;height:15px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:ocsp .7s linear infinite;display:inline-block}
+@keyframes ocsp{to{transform:rotate(360deg)}}
+.oc-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#1e2942;border:1px solid var(--oc-line);color:var(--oc-txt);padding:12px 18px;border-radius:12px;font-size:13.5px;opacity:0;transition:.25s;pointer-events:none;z-index:99}
+.oc-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
