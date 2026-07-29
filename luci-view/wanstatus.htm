@@ -68,10 +68,26 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
           <div class="oc-help" id="srv-hint">هي «OpenMPTCProuter Server key» من مخرجات التثبيت — ليست كلمة مرور SSH.</div></div>
         <div class="oc-field"><label>منفذ الإدارة (API)</label><input id="srv-port" value="65500" readonly>
           <div class="oc-help">ثابت على 65500 — جلب المفاتيح لا يستخدم 22 ولا 65222.</div></div>
+
+        <div id="srv-manual-box" style="display:none;margin-top:8px;padding-top:10px;border-top:1px solid #e2e8ef">
+          <div class="oc-meta"><b>ربط يدوي:</b> الصق المفاتيح من ملف السيرفر مباشرة بدون جلب تلقائي.</div>
+          <div class="oc-field"><label>مفتاح Glorytun</label><input id="srv-gtkey" placeholder="مفتاح النفق من VPS" autocomplete="off"></div>
+          <div class="oc-field"><label>كلمة مرور Shadowsocks</label><input id="srv-sskey" type="password" placeholder="مفتاح البروكسي" autocomplete="off"></div>
+          <div class="oc-field"><label>طريقة التشفير</label>
+            <select id="srv-ssmethod">
+              <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm</option>
+              <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
+              <option value="aes-256-gcm">aes-256-gcm</option>
+            </select>
+          </div>
+          <div class="oc-field"><label>منفذ Shadowsocks</label><input id="srv-ssport" value="65280"></div>
+        </div>
+
         <div id="srv-result" style="display:none;margin:8px 0"></div>
         <div class="oc-actions">
-          <button class="oc-btn" type="button" id="srv-save">ربط وجلب المفاتيح تلقائياً</button>
-          <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/wizard")%>">فتح المعالج الأصلي</a>
+          <button class="oc-btn" type="button" id="srv-auto">ربط تلقائي (جلب المفاتيح)</button>
+          <button class="oc-btn ghost" type="button" id="srv-manual">ربط يدوي</button>
+          <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/wizard")%>">المعالج الأصلي</a>
         </div>
       </div>
     </div>
@@ -441,6 +457,14 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       +'<div class="oc-row"><span>الوضع</span><span>'+(b.master||'—')+'</span></div>'
       +'<div class="oc-row"><span>الجدولة</span><span>'+(b.scheduler||'—')+'</span></div>'
       +'<div class="oc-meta" style="margin-top:8px">'+(b.message||'')+'</div></div>';
+    var ex=d.exit||{};
+    var bestWan='';
+    (d.wans||[]).forEach(function(w){ if(w.net && w.lat && (!bestWan || Number(w.lat)<Number(bestWan))) bestWan=w.lat; });
+    cards += '<div class="oc-mini"><h4><span class="oc-dot '+(ex.ok?'ok':'warn')+'"></span>الخروج بعد الدمج</h4>'
+      +'<div class="oc-row"><span>IP الخروج</span><b>'+(ex.ip||'—')+'</b></div>'
+      +'<div class="oc-row"><span>بنج بعد الدمج</span><b style="color:#2f6fed;font-size:1.15em">'+(ex.lat?ex.lat+' ms':'—')+'</b></div>'
+      +'<div class="oc-row"><span>أفضل بنج خط (قبل الدمج)</span><span>'+(bestWan?bestWan+' ms':'—')+'</span></div>'
+      +'<div class="oc-meta" style="margin-top:8px">بنج بعد الدمج = زمن النفق عبر السيرفر. قارنه مع أفضل خط لترى تكلفة الدمج.</div></div>';
     cards += '<div class="oc-mini"><h4><span class="oc-dot ok"></span>إجمالي السحب</h4>'
       +'<div class="oc-row"><span>السحب الكلي ↓</span><b style="color:#1f9d55">'+fmtBps(sumRx)+'</b></div>'
       +'<div class="oc-row"><span>الرفع الكلي ↑</span><b style="color:#2f6fed">'+fmtBps(sumTx)+'</b></div>'
@@ -625,21 +649,30 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     });
   };
 
-  $('srv-save').onclick=function(){
+  function doSetServer(mode){
     if(busy) return;
     var host=$('srv-ip').value.trim(), token=$('srv-token').value.trim();
     var user=$('srv-user').value.trim()||'openmptcprouter';
-    var port='65500'; // always admin API — never 22
+    var port='65500';
     if(!host){ toast('أدخل IP السيرفر'); return; }
     if(!user){ toast('أدخل اسم المستخدم'); return; }
-    // كلمة المرور اختيارية إذا كانت محفوظة مسبقاً
-    busy=true; toast('جاري الربط وجلب المفاتيح عبر المنفذ 65500…');
-    var box=$('srv-result'); if(box){ box.style.display='block'; box.innerHTML='<div class="oc-alert warn"><b>جاري الجلب…</b>HTTPS :'+port+' /token ثم /config</div>'; }
+    if(mode==='manual'){
+      var gt=$('srv-gtkey').value.trim(), ss=$('srv-sskey').value.trim();
+      if(!gt || !ss){ toast('للربط اليدوي أدخل مفتاح Glorytun وكلمة مرور Shadowsocks'); return; }
+    }
+    busy=true;
+    toast(mode==='auto' ? 'ربط تلقائي وجلب المفاتيح…' : 'ربط يدوي بالمفاتيح…');
+    var box=$('srv-result'); if(box){ box.style.display='block'; box.innerHTML='<div class="oc-alert warn"><b>جاري…</b>'+(mode==='auto'?'جلب من API :65500':'تطبيق المفاتيح اليدوية')+'</div>'; }
     var extra='&host='+encodeURIComponent(host)
       +'&token='+encodeURIComponent(token)
       +'&password='+encodeURIComponent(token)
       +'&port='+encodeURIComponent(port)
-      +'&user='+encodeURIComponent(user);
+      +'&user='+encodeURIComponent(user)
+      +'&mode='+encodeURIComponent(mode)
+      +'&gt_key='+encodeURIComponent(($('srv-gtkey')&&$('srv-gtkey').value.trim())||'')
+      +'&ss_key='+encodeURIComponent(($('srv-sskey')&&$('srv-sskey').value.trim())||'')
+      +'&ss_method='+encodeURIComponent(($('srv-ssmethod')&&$('srv-ssmethod').value)||'')
+      +'&ss_port='+encodeURIComponent(($('srv-ssport')&&$('srv-ssport').value.trim())||'65280');
     api('setserver', extra, true).then(function(d){
       if(!d.ok){
         toast(d.error||'فشل');
@@ -649,18 +682,29 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       var ok=d.keys_ok; var parts=[];
       if(d.glorytun) parts.push('Glorytun ✓'); else parts.push('Glorytun ✗');
       if(d.shadowsocks) parts.push('Shadowsocks ✓'); else parts.push('Shadowsocks ✗');
-      toast(ok ? 'تم جلب المفاتيح' : 'تم الحفظ — الجلب لاحقاً');
+      toast(ok ? (mode==='auto'?'تم الجلب التلقائي':'تم الربط اليدوي') : 'تم الحفظ');
       if(box){
-        box.innerHTML = '<div class="oc-alert '+(ok?'ok':'warn')+'"><b>'+(ok?'تم جلب المفاتيح تلقائياً':'تم حفظ الدخول')+'</b>'
-          + parts.join(' · ') + ' · المنفذ '+(d.port||'65500')+'<br>'+(d.msg||'')+'</div>';
+        box.innerHTML = '<div class="oc-alert '+(ok?'ok':'warn')+'"><b>'+(mode==='auto'?'ربط تلقائي':'ربط يدوي')+'</b>'
+          + parts.join(' · ') + '<br>'+(d.msg||'')+'</div>';
       }
       $('srv-token').value='';
+      if($('srv-sskey')) $('srv-sskey').value='';
       setTimeout(function(){ busy=false; loadStatus(); loadConfig(); }, 5000);
     }).catch(function(){
       toast('فشل الربط');
-      if(box) box.innerHTML='<div class="oc-alert bad"><b>فشل الاتصال</b>تأكد من الإنترنت ومنفذ الإدارة 65500 (ليس 22)</div>';
+      if(box) box.innerHTML='<div class="oc-alert bad"><b>فشل الاتصال</b>تحقق من الإنترنت ومنفذ 65500</div>';
       busy=false;
     });
+  }
+  $('srv-auto').onclick=function(){ doSetServer('auto'); };
+  $('srv-manual').onclick=function(){
+    var box=$('srv-manual-box');
+    if(box.style.display==='none' || !box.style.display){
+      box.style.display='block';
+      toast('أدخل مفاتيح Glorytun وShadowsocks ثم اضغط ربط يدوي مرة أخرى');
+      return;
+    }
+    doSetServer('manual');
   };
 
   $('wan-save').onclick=function(){

@@ -188,6 +188,39 @@ status_json() {
   printf '"bonding":{"state":"%s","message":"%s","master":"%s","scheduler":"%s","paths_online":%s,"paths_ready":%s,"wans_online":%s},' \
     "$_bond_state" "$_bond_msg" "$_master" "$_sched" "$_mp_online" "$_mp_ready" "$_net_ready"
   printf '"warnings":{"lan_wan_clash":%s},' "$_clash"
+
+  # Exit IP + latency after bonding (cached ~40s). IP via SS socks; ping = tunnel peer (path after merge).
+  _exit_ip=""; _exit_lat=""; _exit_ok=false
+  _ef=/tmp/omr-exit-cache
+  _now=$(date +%s)
+  if [ -f "$_ef" ]; then
+    IFS='|' read -r _exit_ip _exit_lat _et < "$_ef"
+    [ -n "$_et" ] && [ $((_now - _et)) -le 40 ] 2>/dev/null || { _exit_ip=""; _exit_lat=""; }
+  fi
+  if { [ -z "$_exit_ip" ] || [ -z "$_exit_lat" ]; } && { [ "$_tunup" = "true" ] || [ "$_prun" = "true" ]; }; then
+    if [ -z "$_exit_ip" ] && command -v curl >/dev/null 2>&1; then
+      for _eu in "https://api.ipify.org" "http://checkip.amazonaws.com" "http://ifconfig.me/ip"; do
+        _exit_ip=$(curl -4 -fsS -m 6 --socks5-hostname 127.0.0.1:1111 "$_eu" 2>/dev/null | tr -d ' \r\n\t')
+        case "$_exit_ip" in *.*.*.*) break ;; *) _exit_ip="" ;; esac
+      done
+      if [ -z "$_exit_ip" ]; then
+        for _eu in "http://ip.openmptcprouter.com" "https://api.ipify.org"; do
+          _exit_ip=$(curl -4 -fsS -m 4 "$_eu" 2>/dev/null | tr -d ' \r\n\t')
+          case "$_exit_ip" in *.*.*.*) break ;; *) _exit_ip="" ;; esac
+        done
+      fi
+    fi
+    if [ -z "$_exit_lat" ]; then
+      if [ "$_tunup" = "true" ]; then
+        _exit_lat=$(ping_ms "$TUN_PEER")
+      fi
+      [ -z "$_exit_lat" ] && _exit_lat=$(ping_ms 1.1.1.1)
+    fi
+    printf '%s|%s|%s\n' "${_exit_ip:-}" "${_exit_lat:-}" "$_now" > "$_ef"
+  fi
+  [ -n "$_exit_ip" ] && _exit_ok=true
+
+  printf '"exit":{"ip":"%s","lat":"%s","ok":%s},' "$_exit_ip" "$_exit_lat" "$_exit_ok"
   printf '"wans":[%s]' "$_wj"
   printf '}'
 }
@@ -367,8 +400,12 @@ set_server() {
   [ -z "$TOKEN" ] && TOKEN=$(qget password)
   PORT=$(qget port); [ -z "$PORT" ] && PORT=65500
   USER=$(qget user); [ -z "$USER" ] && USER=openmptcprouter
+  MODE=$(qget mode); [ -z "$MODE" ] && MODE=auto
+  GTKEY_IN=$(qget gt_key)
+  SSKEY_IN=$(qget ss_key)
+  SSMETHOD_IN=$(qget ss_method)
+  SSPORT_IN=$(qget ss_port)
   if [ -z "$HOST" ]; then err_json "host required"; return; fi
-  # Never use SSH ports for admin API key fetch
   case "$PORT" in
     22|65222)
       err_json "wrong port: use admin API 65500 (not SSH 22/65222)"
@@ -376,15 +413,23 @@ set_server() {
       ;;
   esac
   PORT=65500
-  if [ -z "$TOKEN" ]; then TOKEN=$(uci -q get openmptcprouter.vps.password); fi
-  if [ -z "$TOKEN" ]; then err_json "username/password required (VPS admin key)"; return; fi
+
+  if [ "$MODE" = "manual" ]; then
+    if [ -z "$GTKEY_IN" ] || [ -z "$SSKEY_IN" ]; then
+      err_json "manual mode needs Glorytun key + Shadowsocks password"
+      return
+    fi
+  else
+    if [ -z "$TOKEN" ]; then TOKEN=$(uci -q get openmptcprouter.vps.password); fi
+    if [ -z "$TOKEN" ]; then err_json "username/password required (VPS admin key)"; return; fi
+  fi
 
   uci -q delete openmptcprouter.vps.ip || true
   uci add_list openmptcprouter.vps.ip="$HOST"
   uci set openmptcprouter.vps.username="$USER"
-  uci set openmptcprouter.vps.password="$TOKEN"
+  [ -n "$TOKEN" ] && uci set openmptcprouter.vps.password="$TOKEN"
   uci set openmptcprouter.vps.port="$PORT"
-  uci set openmptcprouter.vps.get_config='1'
+  uci set openmptcprouter.vps.get_config="$([ "$MODE" = "auto" ] && echo 1 || echo 0)"
   uci set openmptcprouter.vps.set_firewall='1'
   uci set openmptcprouter.vps.master='1'
   uci set openmptcprouter.vps.current='1'
@@ -400,10 +445,9 @@ set_server() {
   uci set glorytun-udp.vpn.dev='tun0'
 
   uci set shadowsocks-rust.sss0.server="$HOST"
-  uci set shadowsocks-rust.sss0.server_port='65280'
+  uci set shadowsocks-rust.sss0.server_port="${SSPORT_IN:-65280}"
   uci -q set shadowsocks-rust.sss0.disabled='0'
 
-  # tunnel interface must be static (not dhcp) or peer never gets an IP
   uci set network.omrvpn=interface
   uci set network.omrvpn.proto='static'
   uci set network.omrvpn.device='tun0'
@@ -415,11 +459,23 @@ set_server() {
   uci set glorytun-udp.vpn.localip='10.255.254.2'
   uci set glorytun-udp.vpn.remoteip='10.255.254.1'
 
-  # --- pull token + config from VPS admin API on 65500 (HTTPS then HTTP) ---
   KEYS_OK=0
   GT_OK=0
   SS_OK=0
   MSG=""
+
+  if [ "$MODE" = "manual" ]; then
+    uci set glorytun-udp.vpn.key="$GTKEY_IN"
+    uci set glorytun-udp.vpn.chacha20='1'
+    GT_OK=1
+    uci set shadowsocks-rust.sss0.password="$SSKEY_IN"
+    [ -n "$SSMETHOD_IN" ] && uci set shadowsocks-rust.sss0.method="$SSMETHOD_IN"
+    [ -n "$SSPORT_IN" ] && uci set shadowsocks-rust.sss0.server_port="$SSPORT_IN"
+    SS_OK=1
+    KEYS_OK=1
+    MSG="manual keys applied (no API fetch)"
+  else
+  # --- pull token + config from VPS admin API on 65500 (HTTPS then HTTP) ---
   CFG=/tmp/omr-vps-cfg.json
   TOKFILE=/tmp/omr-vps-tok.json
   rm -f "$CFG" "$TOKFILE"
@@ -480,6 +536,7 @@ set_server() {
   else
     MSG="API :$PORT unreachable — login saved; will retry get_config"
   fi
+  fi
 
   uci commit openmptcprouter
   uci commit glorytun-udp
@@ -496,8 +553,9 @@ set_server() {
   ip addr add 10.255.254.2/30 peer 10.255.254.1 dev tun0 2>/dev/null || true
   ifup omrvpn >/dev/null 2>&1 || true
   /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1 || true
+  rm -f /tmp/omr-exit-cache
 
-  ok_json setserver ",\"host\":\"$HOST\",\"port\":\"$PORT\",\"keys_ok\":$KEYS_OK,\"glorytun\":$GT_OK,\"shadowsocks\":$SS_OK,\"msg\":$(json_str "$MSG")"
+  ok_json setserver ",\"host\":\"$HOST\",\"port\":\"$PORT\",\"mode\":\"$MODE\",\"keys_ok\":$KEYS_OK,\"glorytun\":$GT_OK,\"shadowsocks\":$SS_OK,\"msg\":$(json_str "$MSG")"
 }
 
 # ---------- OTA update ----------
@@ -707,8 +765,14 @@ case "$A" in
   reconnect)  for w in $WANS; do ifup "$w" >/dev/null 2>&1; done
               /etc/init.d/glorytun-udp restart >/dev/null 2>&1; ifup omrvpn >/dev/null 2>&1
               /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1; ok_json reconnect ;;
-  exitip)     _e=$(uclient-fetch -q -T 8 -O - http://ip.openmptcprouter.com 2>/dev/null)
-              printf '{"ok":true,"exit_ip":"%s"}' "$_e" ;;
+  exitip)     _e=""; _lat=""
+              for _eu in "https://api.ipify.org" "http://checkip.amazonaws.com" "http://ifconfig.me/ip"; do
+                _e=$(curl -4 -fsS -m 6 --socks5-hostname 127.0.0.1:1111 "$_eu" 2>/dev/null | tr -d ' \r\n\t')
+                case "$_e" in *.*.*.*) break ;; *) _e="" ;; esac
+              done
+              _lat=$(ping_ms "$TUN_PEER")
+              [ -z "$_lat" ] && _lat=$(ping_ms 1.1.1.1)
+              printf '{"ok":true,"exit_ip":"%s","lat":"%s"}' "$_e" "$_lat" ;;
   version)    _r=$(ota_get VERSION 2>/dev/null | tr -d ' \r\n')
               printf '{"ok":true,"local":"%s","remote":"%s","update_available":%s}' \
                 "$LOCAL_VER" "$_r" "$([ -n "$_r" ] && [ "$_r" != "$LOCAL_VER" ] && echo true || echo false)" ;;
