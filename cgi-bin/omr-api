@@ -1,0 +1,121 @@
+#!/bin/sh
+# OMR simple dashboard API (LAN only)
+# Runs on the router via uhttpd CGI. Returns JSON.
+
+printf 'Content-Type: application/json\r\n'
+printf 'Cache-Control: no-cache, no-store\r\n'
+printf 'Access-Control-Allow-Origin: *\r\n'
+printf '\r\n'
+
+# --- parse query string safely ---
+A=$(printf '%s' "$QUERY_STRING" | sed -n 's/.*\(^\|&\)a=\([^&]*\).*/\2/p')
+I=$(printf '%s' "$QUERY_STRING" | sed -n 's/.*\(^\|&\)i=\([^&]*\).*/\2/p')
+[ -z "$A" ] && A=status
+# whitelist interface name
+case "$I" in
+  wan[0-9]|wan[0-9][0-9]) : ;;
+  *) I="" ;;
+esac
+
+WANS=$(ubus list 2>/dev/null | sed -n 's#^network\.interface\.\(wan[0-9]*\)$#\1#p')
+VPS_HOST=$(uci -q get glorytun-udp.vpn.host)
+TUN_DEV=$(uci -q get glorytun-udp.vpn.dev); [ -z "$TUN_DEV" ] && TUN_DEV=tun0
+TUN_PEER=$(uci -q get glorytun-udp.vpn.remoteip); [ -z "$TUN_PEER" ] && TUN_PEER=10.255.254.1
+
+# --- GitHub OTA update settings ---
+OTA_RAW="https://raw.githubusercontent.com/mmlktahmd4-cmd/omr-dashboard/main"
+VER_FILE="/www/omr-dash/VERSION"
+LOCAL_VER=$(cat "$VER_FILE" 2>/dev/null | tr -d ' \r\n'); [ -z "$LOCAL_VER" ] && LOCAL_VER="0"
+
+fetch() { # url -> stdout
+  if command -v curl >/dev/null 2>&1; then curl -fsSL -m 25 "$1"
+  else uclient-fetch -q -T 25 -O - "$1"; fi
+}
+json_str() { # value -> JSON quoted string
+  printf '"'
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' '\001' | sed 's/\001/\\n/g'
+  printf '"'
+}
+
+ping_ms() { # host [device]
+  _o=$(ping -c1 -W2 ${2:+-I "$2"} "$1" 2>/dev/null)
+  printf '%s' "$_o" | sed -n 's/.*time=\([0-9.]*\).*/\1/p' | head -1
+}
+
+status_json() {
+  # WANs
+  _wj=""
+  for w in $WANS; do
+    _st=$(ubus call network.interface."$w" status 2>/dev/null)
+    _up=$(printf '%s' "$_st" | jsonfilter -e '@.up' 2>/dev/null)
+    _dev=$(printf '%s' "$_st" | jsonfilter -e '@.l3_device' 2>/dev/null)
+    [ -z "$_dev" ] && _dev=$(printf '%s' "$_st" | jsonfilter -e '@.device' 2>/dev/null)
+    _ip=$(printf '%s' "$_st" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
+    _proto=$(printf '%s' "$_st" | jsonfilter -e '@.proto' 2>/dev/null)
+    _link=false; _speed=""
+    if [ -n "$_dev" ]; then
+      _et=$(ethtool "$_dev" 2>/dev/null)
+      printf '%s' "$_et" | grep -q "Link detected: yes" && _link=true
+      _speed=$(printf '%s' "$_et" | sed -n 's/.*Speed: \([0-9]*\)Mb\/s/\1/p' | head -1)
+    fi
+    _net=false; _lat=""
+    if [ "$_up" = "true" ] && [ -n "$_dev" ] && [ "$_link" = "true" ]; then
+      _lat=$(ping_ms 1.1.1.1 "$_dev")
+      [ -n "$_lat" ] && _net=true
+    fi
+    [ -z "$_up" ] && _up=false
+    [ -n "$_wj" ] && _wj="$_wj,"
+    _wj="$_wj{\"name\":\"$w\",\"up\":$_up,\"dev\":\"$_dev\",\"ip\":\"$_ip\",\"proto\":\"$_proto\",\"link\":$_link,\"speed\":\"$_speed\",\"net\":$_net,\"lat\":\"$_lat\"}"
+  done
+
+  # tunnel
+  _tunup=false
+  if ip link show "$TUN_DEV" >/dev/null 2>&1; then
+    _tl=$(ping_ms "$TUN_PEER")
+    [ -n "$_tl" ] && _tunup=true
+  fi
+  # vps reachable
+  _vl=$(ping_ms "$VPS_HOST")
+  _vok=false; [ -n "$_vl" ] && _vok=true
+  # proxy
+  _prun=false; pgrep -f sslocal >/dev/null 2>&1 && _prun=true
+  _pen=false; /etc/init.d/shadowsocks-rust enabled 2>/dev/null && _pen=true
+  # tunnel service
+  _gtrun=false; pgrep -f glorytun-udp >/dev/null 2>&1 && _gtrun=true
+
+  _host=$(uci -q get system.@system[0].hostname); [ -z "$_host" ] && _host=$(cat /proc/sys/kernel/hostname)
+
+  printf '{'
+  printf '"time":%s,' "$(date +%s)"
+  printf '"host":"%s",' "$_host"
+  printf '"version":"%s",' "$LOCAL_VER"
+  printf '"vps":{"host":"%s","reachable":%s,"lat":"%s"},' "$VPS_HOST" "$_vok" "$_vl"
+  printf '"tunnel":{"dev":"%s","peer":"%s","up":%s,"lat":"%s","service":%s},' "$TUN_DEV" "$TUN_PEER" "$_tunup" "${_tl:-}" "$_gtrun"
+  printf '"proxy":{"name":"shadowsocks-rust","running":%s,"enabled":%s},' "$_prun" "$_pen"
+  printf '"wans":[%s]' "$_wj"
+  printf '}'
+}
+
+case "$A" in
+  wanup)     [ -n "$I" ] && ifup "$I" >/dev/null 2>&1;   printf '{"ok":true,"a":"wanup","i":"%s"}' "$I" ;;
+  wandown)   [ -n "$I" ] && ifdown "$I" >/dev/null 2>&1; printf '{"ok":true,"a":"wandown","i":"%s"}' "$I" ;;
+  wanrestart) [ -n "$I" ] && { ifdown "$I" >/dev/null 2>&1; sleep 1; ifup "$I" >/dev/null 2>&1; }
+             printf '{"ok":true,"a":"wanrestart","i":"%s"}' "$I" ;;
+  vpn)       /etc/init.d/glorytun-udp restart >/dev/null 2>&1; ifup omrvpn >/dev/null 2>&1
+             printf '{"ok":true,"a":"vpn"}' ;;
+  proxy)     /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1
+             printf '{"ok":true,"a":"proxy"}' ;;
+  reconnect) for w in $WANS; do ifup "$w" >/dev/null 2>&1; done
+             /etc/init.d/glorytun-udp restart >/dev/null 2>&1
+             ifup omrvpn >/dev/null 2>&1
+             /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1
+             printf '{"ok":true,"a":"reconnect"}' ;;
+  exitip)    _e=$(uclient-fetch -q -T 8 -O - http://ip.openmptcprouter.com 2>/dev/null)
+             printf '{"ok":true,"exit_ip":"%s"}' "$_e" ;;
+  version)   _r=$(fetch "$OTA_RAW/VERSION" 2>/dev/null | tr -d ' \r\n')
+             printf '{"ok":true,"local":"%s","remote":"%s"}' "$LOCAL_VER" "$_r" ;;
+  update)    _log=$(fetch "$OTA_RAW/install.sh" 2>/dev/null | sh 2>&1)
+             _nv=$(cat "$VER_FILE" 2>/dev/null | tr -d ' \r\n')
+             printf '{"ok":true,"a":"update","version":"%s","log":%s}' "$_nv" "$(json_str "$_log")" ;;
+  status|*)  status_json ;;
+esac
