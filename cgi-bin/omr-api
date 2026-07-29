@@ -69,6 +69,7 @@ err_json() { printf '{"ok":false,"error":%s%s}' "$(json_str "$1")" "${2:-}"; }
 # ---------- status ----------
 status_json() {
   _wj=""
+  _mp_ready=0; _net_ready=0; _mp_online=0
   for w in $WANS; do
     _st=$(ubus call network.interface."$w" status 2>/dev/null)
     _up=$(printf '%s' "$_st" | jsonfilter -e '@.up' 2>/dev/null)
@@ -115,32 +116,78 @@ status_json() {
       [ -n "$_gw" ] && _gwlat=$(ping_ms "$_gw" "$_dev")
     fi
     [ -z "$_up" ] && _up=false
+    case "$_mp" in on|master|backup) _mp_ready=$((_mp_ready+1)) ;; esac
+    [ "$_net" = "true" ] && _net_ready=$((_net_ready+1))
+    case "$_mp" in on|master|backup) [ "$_net" = "true" ] && _mp_online=$((_mp_online+1)) ;; esac
     [ -n "$_wj" ] && _wj="$_wj,"
     _wj="$_wj{\"name\":\"$w\",\"up\":$_up,\"dev\":\"$_dev\",\"ip\":\"$_ip\",\"proto\":\"$_proto\",\"gateway\":\"$_gw\",\"multipath\":\"$_mp\",\"link\":$_link,\"speed\":\"$_speed\",\"net\":$_net,\"lat\":\"$_lat\",\"gw_lat\":\"$_gwlat\",\"rx_bps\":$_rxr,\"tx_bps\":$_txr,\"rx_bytes\":$_rxb,\"tx_bytes\":$_txb}"
   done
 
-  _tunup=false
+  _tunup=false; _tl=""; _tunip=""
   if ip link show "$TUN_DEV" >/dev/null 2>&1; then
+    _tunip=$(ip -4 -o addr show "$TUN_DEV" 2>/dev/null | awk '{print $4}' | head -1)
+    if [ -z "$_tunip" ] && pgrep -f glorytun-udp >/dev/null 2>&1; then
+      _lip=$(uci -q get glorytun-udp.vpn.localip); [ -z "$_lip" ] && _lip=10.255.254.2
+      ip addr add "$_lip/30" peer "$TUN_PEER" dev "$TUN_DEV" 2>/dev/null || \
+        ip addr add "$_lip/30" dev "$TUN_DEV" 2>/dev/null || true
+      _tunip=$(ip -4 -o addr show "$TUN_DEV" 2>/dev/null | awk '{print $4}' | head -1)
+    fi
     _tl=$(ping_ms "$TUN_PEER")
     [ -n "$_tl" ] && _tunup=true
   fi
+  _gtrun=false; pgrep -f glorytun-udp >/dev/null 2>&1 && _gtrun=true
+
   _vl=$(ping_ms "$VPS_HOST"); _vok=false; [ -n "$_vl" ] && _vok=true
+  if [ "$_vok" = "false" ] && [ -n "$VPS_HOST" ]; then
+    if curl -4 -sk -m 3 -o /dev/null "https://$VPS_HOST:65500/" 2>/dev/null; then
+      _vok=true; _vl="tcp"
+    fi
+  fi
   _prun=false; pgrep -f sslocal >/dev/null 2>&1 && _prun=true
   _pen=false; /etc/init.d/shadowsocks-rust enabled 2>/dev/null && _pen=true
-  _gtrun=false; pgrep -f glorytun-udp >/dev/null 2>&1 && _gtrun=true
   _host=$(uci -q get system.@system[0].hostname); [ -z "$_host" ] && _host=OpenMPTCProuter
+  _master=$(uci -q get openmptcprouter.settings.master); [ -z "$_master" ] && _master=balancing
+  _sched=$(sysctl -n net.mptcp.scheduler 2>/dev/null)
 
-  # total throughput across up WANs
-  _trx=0; _ttx=0
-  # parsed later in UI from wans sum
+  _bond_state="off"
+  _bond_msg="الدمج غير شغال"
+  if [ "$_tunup" = "true" ] && [ "$_prun" = "true" ] && [ "$_mp_online" -ge 2 ]; then
+    _bond_state="active"
+    _bond_msg="الدمج شغال — $_mp_online خطوط تشارك في التجميع"
+  elif [ "$_tunup" = "true" ] && [ "$_prun" = "true" ] && [ "$_mp_online" -eq 1 ]; then
+    _bond_state="partial"
+    _bond_msg="الدمج جزئي — خط واحد فقط متصل (يلزم خطّان للتجميع)"
+  elif [ "$_tunup" != "true" ]; then
+    _bond_state="off"
+    _bond_msg="الدمج متوقف — النفق غير متصل"
+  elif [ "$_prun" != "true" ]; then
+    _bond_state="off"
+    _bond_msg="الدمج متوقف — البروكسي غير شغال"
+  else
+    _bond_state="off"
+    _bond_msg="الدمج متوقف — لا توجد وصلات إنترنت جاهزة"
+  fi
+
+  _lanip=$(uci -q get network.lan.ipaddr)
+  _clash=false
+  _lan_pfx=$(printf '%s' "$_lanip" | awk -F. '{print $1"."$2"."$3}')
+  for w in $WANS; do
+    _wip=$(ubus call network.interface."$w" status 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
+    _wpfx=$(printf '%s' "$_wip" | awk -F. '{print $1"."$2"."$3}')
+    [ -n "$_lan_pfx" ] && [ -n "$_wpfx" ] && [ "$_lan_pfx" = "$_wpfx" ] && _clash=true
+  done
 
   printf '{'
   printf '"time":%s,' "$(date +%s)"
   printf '"host":"%s",' "$_host"
   printf '"version":"%s",' "$LOCAL_VER"
   printf '"vps":{"host":"%s","reachable":%s,"lat":"%s"},' "$VPS_HOST" "$_vok" "$_vl"
-  printf '"tunnel":{"dev":"%s","peer":"%s","up":%s,"lat":"%s","service":%s},' "$TUN_DEV" "$TUN_PEER" "$_tunup" "${_tl:-}" "$_gtrun"
+  printf '"tunnel":{"dev":"%s","peer":"%s","up":%s,"lat":"%s","service":%s,"ip":"%s"},' \
+    "$TUN_DEV" "$TUN_PEER" "$_tunup" "${_tl:-}" "$_gtrun" "$_tunip"
   printf '"proxy":{"name":"shadowsocks-rust","running":%s,"enabled":%s},' "$_prun" "$_pen"
+  printf '"bonding":{"state":"%s","message":"%s","master":"%s","scheduler":"%s","paths_online":%s,"paths_ready":%s,"wans_online":%s},' \
+    "$_bond_state" "$_bond_msg" "$_master" "$_sched" "$_mp_online" "$_mp_ready" "$_net_ready"
+  printf '"warnings":{"lan_wan_clash":%s},' "$_clash"
   printf '"wans":[%s]' "$_wj"
   printf '}'
 }
@@ -353,7 +400,20 @@ set_server() {
   uci set glorytun-udp.vpn.dev='tun0'
 
   uci set shadowsocks-rust.sss0.server="$HOST"
+  uci set shadowsocks-rust.sss0.server_port='65280'
   uci -q set shadowsocks-rust.sss0.disabled='0'
+
+  # tunnel interface must be static (not dhcp) or peer never gets an IP
+  uci set network.omrvpn=interface
+  uci set network.omrvpn.proto='static'
+  uci set network.omrvpn.device='tun0'
+  uci set network.omrvpn.ipaddr='10.255.254.2'
+  uci set network.omrvpn.netmask='255.255.255.252'
+  uci set network.omrvpn.gateway='10.255.254.1'
+  uci set network.omrvpn.multipath='off'
+  uci set network.omrvpn.metric='1500'
+  uci set glorytun-udp.vpn.localip='10.255.254.2'
+  uci set glorytun-udp.vpn.remoteip='10.255.254.1'
 
   # --- pull token + config from VPS admin API on 65500 (HTTPS then HTTP) ---
   KEYS_OK=0
@@ -424,11 +484,16 @@ set_server() {
   uci commit openmptcprouter
   uci commit glorytun-udp
   uci commit shadowsocks-rust
+  uci commit network
 
   /etc/init.d/openmptcprouter-vps restart >/dev/null 2>&1 || true
   /etc/init.d/openmptcprouter restart >/dev/null 2>&1 || true
   sleep 2
   /etc/init.d/glorytun-udp restart >/dev/null 2>&1 || true
+  sleep 1
+  ip link set tun0 up 2>/dev/null || true
+  ip addr flush dev tun0 2>/dev/null || true
+  ip addr add 10.255.254.2/30 peer 10.255.254.1 dev tun0 2>/dev/null || true
   ifup omrvpn >/dev/null 2>&1 || true
   /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1 || true
 
@@ -624,7 +689,20 @@ case "$A" in
   wandown)    [ -n "$I" ] && ifdown "$I" >/dev/null 2>&1; ok_json wandown ',"i":"'"$I"'"' ;;
   wanrestart) [ -n "$I" ] && { ifdown "$I" >/dev/null 2>&1; sleep 1; ifup "$I" >/dev/null 2>&1; }
               ok_json wanrestart ',"i":"'"$I"'"' ;;
-  vpn)        /etc/init.d/glorytun-udp restart >/dev/null 2>&1; ifup omrvpn >/dev/null 2>&1; ok_json vpn ;;
+  vpn)        /etc/init.d/glorytun-udp restart >/dev/null 2>&1
+              sleep 1
+              _lip=$(uci -q get glorytun-udp.vpn.localip); [ -z "$_lip" ] && _lip=10.255.254.2
+              _rpeer=$(uci -q get glorytun-udp.vpn.remoteip); [ -z "$_rpeer" ] && _rpeer=10.255.254.1
+              uci set network.omrvpn.proto='static'
+              uci set network.omrvpn.ipaddr="$_lip"
+              uci set network.omrvpn.netmask='255.255.255.252'
+              uci set network.omrvpn.gateway="$_rpeer"
+              uci set network.omrvpn.device="$TUN_DEV"
+              uci commit network
+              ip link set "$TUN_DEV" up 2>/dev/null || true
+              ip addr flush dev "$TUN_DEV" 2>/dev/null || true
+              ip addr add "$_lip/30" peer "$_rpeer" dev "$TUN_DEV" 2>/dev/null || ip addr add "$_lip/30" dev "$TUN_DEV" 2>/dev/null || true
+              ifup omrvpn >/dev/null 2>&1; ok_json vpn ;;
   proxy)      /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1; ok_json proxy ;;
   reconnect)  for w in $WANS; do ifup "$w" >/dev/null 2>&1; done
               /etc/init.d/glorytun-udp restart >/dev/null 2>&1; ifup omrvpn >/dev/null 2>&1

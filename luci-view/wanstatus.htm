@@ -419,20 +419,28 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         +'<button class="oc-btn ghost" type="button" data-a="wandown" data-i="'+w.name+'" data-l="إيقاف">إيقاف</button>'
         +'</div></div>';
     });
-    var v=d.vps||{}, t=d.tunnel||{}, p=d.proxy||{};
+    var v=d.vps||{}, t=d.tunnel||{}, p=d.proxy||{}, b=d.bonding||{}, w=d.warnings||{};
+    var bondCls = b.state==='active'?'ok':(b.state==='partial'?'warn':'bad');
     cards += '<div class="oc-mini"><h4><span class="oc-dot '+(v.reachable?'ok':'bad')+'"></span>السيرفر</h4>'
       +'<div class="oc-row"><span>العنوان</span><span>'+(v.host||'—')+'</span></div>'
       +'<div class="oc-row"><span>الوصول</span>'+pill(v.reachable,'يعمل','لا يصل')+'</div>'
-      +'<div class="oc-row"><span>بنج السيرفر</span><b>'+(v.lat?v.lat+' ms':'—')+'</b></div></div>';
+      +'<div class="oc-row"><span>بنج السيرفر</span><b>'+(v.lat?v.lat+(v.lat==='tcp'?'':' ms'):'—')+'</b></div></div>';
     cards += '<div class="oc-mini"><h4><span class="oc-dot '+(t.up?'ok':'bad')+'"></span>النفق VPN</h4>'
       +'<div class="oc-row"><span>الحالة</span>'+pill(t.up,'يعمل','متوقف',t.service)+'</div>'
       +'<div class="oc-row"><span>بنج النفق</span><b>'+(t.lat?t.lat+' ms':'—')+'</b></div>'
       +'<div class="oc-row"><span>المسار</span><span>'+(t.dev||'tun0')+' → '+(t.peer||'')+'</span></div>'
+      +'<div class="oc-row"><span>IP النفق</span><span>'+(t.ip||'—')+'</span></div>'
       +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="vpn" data-l="إعادة النفق">إعادة تشغيل</button></div></div>';
     cards += '<div class="oc-mini"><h4><span class="oc-dot '+(p.running?'ok':'bad')+'"></span>البروكسي</h4>'
       +'<div class="oc-row"><span>الحالة</span>'+pill(p.running,'يعمل','متوقف')+'</div>'
       +'<div class="oc-row"><span>النوع</span><span>'+(p.name||'—')+'</span></div>'
       +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="proxy" data-l="إعادة البروكسي">إعادة تشغيل</button></div></div>';
+    cards += '<div class="oc-mini"><h4><span class="oc-dot '+bondCls+'"></span>حالة الدمج</h4>'
+      +'<div class="oc-row"><span>الحالة</span>'+(b.state==='active'?pill(true,'شغال',''):(b.state==='partial'?pill(false,'جزئي',true):pill(false,'متوقف')))+'</div>'
+      +'<div class="oc-row"><span>الخطوط المشاركة</span><b>'+(b.paths_online!=null?b.paths_online:'—')+' / '+(b.paths_ready!=null?b.paths_ready:'—')+'</b></div>'
+      +'<div class="oc-row"><span>الوضع</span><span>'+(b.master||'—')+'</span></div>'
+      +'<div class="oc-row"><span>الجدولة</span><span>'+(b.scheduler||'—')+'</span></div>'
+      +'<div class="oc-meta" style="margin-top:8px">'+(b.message||'')+'</div></div>';
     cards += '<div class="oc-mini"><h4><span class="oc-dot ok"></span>إجمالي السحب</h4>'
       +'<div class="oc-row"><span>السحب الكلي ↓</span><b style="color:#1f9d55">'+fmtBps(sumRx)+'</b></div>'
       +'<div class="oc-row"><span>الرفع الكلي ↑</span><b style="color:#2f6fed">'+fmtBps(sumTx)+'</b></div>'
@@ -440,19 +448,23 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     $('oc-grid').innerHTML=cards;
 
     var problems=[];
+    if(b.state==='active') problems.push({lvl:'ok',t:'الدمج شغال',d:b.message||'الخطوط تتجمع عبر النفق.'});
+    else if(b.state==='partial') problems.push({lvl:'warn',t:'الدمج جزئي',d:b.message||'وصّل الخط الثاني حتى يكتمل التجميع.'});
+    else problems.push({lvl:'bad',t:'الدمج غير شغال',d:b.message||'تحقق من النفق والبروكسي والوصلات.'});
+    if(w.lan_wan_clash) problems.push({lvl:'bad',t:'تعارض شبكة LAN مع WAN',d:'الـ LAN والـ WAN على نفس الرينج. غيّر خرج LAN إلى شبكة مختلفة (مثل 10.10.10.1).'});
     if(!v.reachable) problems.push({lvl:'bad',t:'السيرفر غير متصل',d:'وصّل وصلة إنترنت ثم تبويب السيرفر، أو اضغط إعادة الاتصال.'});
     if(v.reachable && !t.up) problems.push({lvl:'bad',t:'النفق متوقف',d:'أعد ربط السيرفر أو أعد تشغيل النفق.'});
     if(t.up && !p.running) problems.push({lvl:'warn',t:'البروكسي متوقف',d:'اضغط إعادة تشغيل البروكسي.'});
-    (d.wans||[]).forEach(function(w){ if(!w.link) problems.push({lvl:'warn',t:w.name+' بلا كيبل',d:'افتح تبويب الوصلات واربط المنفذ.'}); });
+    (d.wans||[]).forEach(function(x){ if(!x.link) problems.push({lvl:'warn',t:x.name+' بلا كيبل',d:'افتح تبويب الوصلات واربط المنفذ.'}); });
     var healthy=v.reachable && t.up && p.running && wanUp>=1;
     var orb=$('oc-orb');
     var howto=$('oc-howto');
     if(howto) howto.style.display = (wanUp<1 || !v.reachable) ? 'block' : 'none';
-    if(healthy){ orb.className='oc-orb ok'; orb.textContent='✓'; $('oc-title').textContent='النظام يعمل'; $('oc-desc').textContent=wanUp+' وصلة · سحب '+fmtBps(sumRx); }
+    if(b.state==='active' && healthy){ orb.className='oc-orb ok'; orb.textContent='✓'; $('oc-title').textContent='الدمج شغال'; $('oc-desc').textContent=(b.paths_online||wanUp)+' خطوط · سحب '+fmtBps(sumRx); }
+    else if(healthy && b.state==='partial'){ orb.className='oc-orb warn'; orb.textContent='!'; $('oc-title').textContent='يعمل — دمج جزئي'; $('oc-desc').textContent=b.message||''; }
     else if(problems.some(function(x){return x.lvl==='bad';})){ orb.className='oc-orb bad'; orb.textContent='!'; $('oc-title').textContent='يحتاج إعداد / إصلاح'; $('oc-desc').textContent='استخدم التبويبات بالأعلى'; }
     else { orb.className='oc-orb warn'; orb.textContent='!'; $('oc-title').textContent='يعمل مع ملاحظات'; $('oc-desc').textContent='راجع التنبيهات'; }
-    $('oc-advice').innerHTML = problems.length ? problems.map(function(pr){ return '<div class="oc-alert '+pr.lvl+'"><b>'+pr.t+'</b>'+pr.d+'</div>'; }).join('')
-      : '<div class="oc-alert ok"><b>لا توجد مشاكل</b>كل الخدمات الأساسية تعمل.</div>';
+    $('oc-advice').innerHTML = problems.map(function(pr){ return '<div class="oc-alert '+pr.lvl+'"><b>'+pr.t+'</b>'+pr.d+'</div>'; }).join('');
     if(d.version) $('oc-curVer').textContent=d.version;
   }
 
