@@ -27,6 +27,17 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     <button class="oc-btn" id="oc-reconnect" type="button">إعادة الاتصال بالكامل</button>
   </div>
   <div class="oc-advice" id="oc-advice"></div>
+  <div class="oc-card" id="oc-howto" style="display:none">
+    <h3>كيف تشغّل النظام</h3>
+    <div class="oc-body">
+      <ol style="margin:0;padding-inline-start:18px;line-height:1.7;color:#5b6b7c;font-size:13px">
+        <li>وصّل كيبل المودم/الإنترنت إلى محولة USB (eth1 أو eth2).</li>
+        <li>من تبويب <b>الوصلات</b> اختر DHCP واحفظ الوصلة.</li>
+        <li>من تبويب <b>السيرفر</b> تأكد من IP السيرفر والتوكن ثم احفظ.</li>
+        <li>ارجع للحالة حتى يصير السيرفر والنفق أخضر.</li>
+      </ol>
+    </div>
+  </div>
   <div class="oc-grid" id="oc-grid"></div>
   <div class="oc-card">
     <h3>التحديثات</h3>
@@ -292,6 +303,8 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     (d.wans||[]).forEach(function(w){ if(!w.link) problems.push({lvl:'warn',t:w.name+' بلا كيبل',d:'افتح تبويب الوصلات واربط المنفذ.'}); });
     var healthy=v.reachable && t.up && p.running && wanUp>=1;
     var orb=$('oc-orb');
+    var howto=$('oc-howto');
+    if(howto) howto.style.display = (wanUp<1 || !v.reachable) ? 'block' : 'none';
     if(healthy){ orb.className='oc-orb ok'; orb.textContent='✓'; $('oc-title').textContent='النظام يعمل'; $('oc-desc').textContent=wanUp+' وصلة نشطة'; }
     else if(problems.some(function(x){return x.lvl==='bad';})){ orb.className='oc-orb bad'; orb.textContent='!'; $('oc-title').textContent='يحتاج إعداد / إصلاح'; $('oc-desc').textContent='استخدم التبويبات بالأعلى'; }
     else { orb.className='oc-orb warn'; orb.textContent='!'; $('oc-title').textContent='يعمل مع ملاحظات'; $('oc-desc').textContent='راجع التنبيهات'; }
