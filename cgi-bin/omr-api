@@ -10,6 +10,15 @@ qget() {
 }
 
 A=$(qget a); [ -z "$A" ] && A=status
+# merge POST body into query for forms
+if [ "$REQUEST_METHOD" = "POST" ]; then
+  _cl=${CONTENT_LENGTH:-0}
+  if [ "$_cl" -gt 0 ] 2>/dev/null; then
+    _post=$(dd bs=1 count="$_cl" 2>/dev/null)
+    QUERY_STRING="${QUERY_STRING}&${_post}"
+    A=$(qget a); [ -z "$A" ] && A=status
+  fi
+fi
 I=$(qget i)
 case "$I" in wan[0-9]|wan[0-9][0-9]) : ;; *) I="" ;; esac
 
@@ -122,8 +131,13 @@ config_json() {
     _proto=$(uci -q get network."$w".proto)
     _mp=$(uci -q get network."$w".multipath)
     _auto=$(uci -q get network."$w".auto); [ -z "$_auto" ] && _auto=1
+    _ip=$(uci -q get network."$w".ipaddr)
+    _mask=$(uci -q get network."$w".netmask)
+    _gw=$(uci -q get network."$w".gateway)
+    _dns=$(uci -q get network."$w".dns | tr '\n' ' ')
+    _user=$(uci -q get network."$w".username)
     [ -n "$_wj" ] && _wj="$_wj,"
-    _wj="$_wj{\"name\":\"$w\",\"dev\":\"$_dev\",\"proto\":\"$_proto\",\"multipath\":\"$_mp\",\"auto\":\"$_auto\"}"
+    _wj="$_wj{\"name\":\"$w\",\"dev\":\"$_dev\",\"proto\":\"$_proto\",\"multipath\":\"$_mp\",\"auto\":\"$_auto\",\"ip\":\"$_ip\",\"netmask\":\"$_mask\",\"gateway\":\"$_gw\",\"dns\":\"$_dns\",\"username\":\"$_user\"}"
   done
 
   printf '{'
@@ -268,17 +282,18 @@ set_server() {
 # ---------- set WAN / broadband ----------
 set_wan() {
   DEV=$(qget dev)
+  PROTO=$(qget proto); [ -z "$PROTO" ] && PROTO=dhcp
   MP=$(qget multipath); [ -z "$MP" ] && MP=on
   EN=$(qget enable); [ -z "$EN" ] && EN=1
+  IP=$(qget ip); MASK=$(qget netmask); GW=$(qget gateway); DNS=$(qget dns)
+  PPUSER=$(qget username); PPPASS=$(qget password)
   if [ -z "$I" ]; then printf '{"ok":false,"error":"interface required (wan1/wan2)"}'; return; fi
-  if [ -z "$DEV" ]; then printf '{"ok":false,"error":"device required (eth1/eth2)"}'; return; fi
+  if [ -z "$DEV" ]; then printf '{"ok":false,"error":"device required"}'; return; fi
 
-  # metric by wan number
   N=$(printf '%s' "$I" | sed 's/wan//')
   MET=$((4 + N))
 
   uci set network."$I"=interface
-  uci set network."$I".proto='dhcp'
   uci set network."$I".device="$DEV"
   uci set network."$I".multipath="$MP"
   uci set network."$I".defaultroute='1'
@@ -286,17 +301,44 @@ set_wan() {
   uci set network."$I".ipv6='0'
   uci set network."$I".metric="$MET"
   uci set network."$I".ip4table="$MET"
-  if [ "$EN" = "0" ]; then
-    uci set network."$I".auto='0'
-  else
-    uci set network."$I".auto='1'
-    uci -q delete network."$I".disabled
+  uci set network."$I".label="$I"
+
+  # clear previous proto-specific options
+  uci -q delete network."$I".ipaddr
+  uci -q delete network."$I".netmask
+  uci -q delete network."$I".gateway
+  uci -q delete network."$I".dns
+  uci -q delete network."$I".username
+  uci -q delete network."$I".password
+
+  case "$PROTO" in
+    static)
+      uci set network."$I".proto='static'
+      [ -n "$IP" ] && uci set network."$I".ipaddr="$IP"
+      [ -n "$MASK" ] && uci set network."$I".netmask="$MASK"
+      [ -n "$GW" ] && uci set network."$I".gateway="$GW"
+      if [ -n "$DNS" ]; then
+        uci -q delete network."$I".dns
+        for d in $DNS; do uci add_list network."$I".dns="$d"; done
+        uci set network."$I".peerdns='0'
+      fi
+      ;;
+    pppoe)
+      uci set network."$I".proto='pppoe'
+      uci set network."$I".username="$PPUSER"
+      uci set network."$I".password="$PPPASS"
+      ;;
+    *)
+      uci set network."$I".proto='dhcp'
+      ;;
+  esac
+
+  if [ "$EN" = "0" ]; then uci set network."$I".auto='0'
+  else uci set network."$I".auto='1'; uci -q delete network."$I".disabled || true
   fi
 
   uci set openmptcprouter."$I"=interface
   uci set openmptcprouter."$I".multipath="$MP"
-
-  # ensure in firewall wan zone
   echo "$(uci -q get firewall.zone_wan.network)" | grep -qw "$I" || uci add_list firewall.zone_wan.network="$I"
 
   uci commit network
@@ -304,9 +346,9 @@ set_wan() {
   uci commit firewall
   /etc/init.d/firewall reload >/dev/null 2>&1 || true
   if [ "$EN" = "0" ]; then ifdown "$I" >/dev/null 2>&1 || true
-  else ifup "$I" >/dev/null 2>&1 || true
+  else ifdown "$I" >/dev/null 2>&1 || true; sleep 1; ifup "$I" >/dev/null 2>&1 || true
   fi
-  ok_json setwan ',"i":"'"$I"'","dev":"'"$DEV"'","multipath":"'"$MP"'"'
+  ok_json setwan ',"i":"'"$I"'","dev":"'"$DEV"'","proto":"'"$PROTO"'","multipath":"'"$MP"'"'
 }
 
 # ---------- settings ----------

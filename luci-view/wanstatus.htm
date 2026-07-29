@@ -1,5 +1,5 @@
 <%#
-  OMR Connect — Status + Setup (server / broadband / settings) inside LuCI
+  OMR Connect — classic admin panel (status + server + WAN modes + bonding + settings)
 -%>
 <%+header%>
 <%
@@ -8,178 +8,195 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
 %>
 <div class="oc-tabs" id="oc-tabs">
   <button type="button" class="oc-tab active" data-tab="status">الحالة</button>
-  <button type="button" class="oc-tab" data-tab="server">ربط السيرفر</button>
-  <button type="button" class="oc-tab" data-tab="wan">إضافة برودباند</button>
+  <button type="button" class="oc-tab" data-tab="server">السيرفر</button>
+  <button type="button" class="oc-tab" data-tab="wan">الوصلات / برودباند</button>
   <button type="button" class="oc-tab" data-tab="bond">الدمج</button>
-  <button type="button" class="oc-tab" data-tab="settings">الإعدادات</button>
+  <button type="button" class="oc-tab" data-tab="settings">إعدادات عامة</button>
 </div>
 
+<!-- STATUS -->
 <div class="oc-panel active" id="panel-status">
   <div class="oc-hero">
     <div class="state">
       <div class="oc-orb warn" id="oc-orb">…</div>
       <div>
         <h2 id="oc-title">جاري الفحص…</h2>
-        <p id="oc-desc"><%=menuentry%> · نفحص الوصلات والسيرفر والنفق</p>
+        <p id="oc-desc">لوحة إدارة Connect</p>
       </div>
     </div>
-    <button class="oc-btn" id="oc-reconnect" type="button"><span>🔄</span><span>توصيل / إعادة الاتصال</span></button>
+    <button class="oc-btn" id="oc-reconnect" type="button">إعادة الاتصال بالكامل</button>
   </div>
   <div class="oc-advice" id="oc-advice"></div>
   <div class="oc-grid" id="oc-grid"></div>
   <div class="oc-card">
-    <h3><span class="oc-dot ok"></span>التحديثات عبر GitHub</h3>
-    <div class="oc-meta">الإصدار: <b id="oc-curVer">—</b> · آخر إصدار: <span id="oc-remoteVer">اضغط «تحقق»</span></div>
-    <div class="oc-cardbtns" style="max-width:420px">
-      <button class="oc-btn ghost" type="button" id="oc-check">تحقق من التحديثات</button>
-      <button class="oc-btn" type="button" id="oc-update" style="display:none">تحديث الآن</button>
+    <h3>التحديثات</h3>
+    <div class="oc-body">
+      <div class="oc-meta">الإصدار الحالي: <b id="oc-curVer">—</b> · على GitHub: <span id="oc-remoteVer">—</span></div>
+      <div class="oc-actions" style="border:0;margin:0;padding:0">
+        <button class="oc-btn ghost" type="button" id="oc-check">تحقق من التحديثات</button>
+        <button class="oc-btn" type="button" id="oc-update" style="display:none">تحديث الآن</button>
+      </div>
     </div>
   </div>
 </div>
 
+<!-- SERVER -->
 <div class="oc-panel" id="panel-server">
   <div class="oc-card">
-    <h3>ربط السيرفر البعيد (VPS)</h3>
-    <div class="oc-meta">أدخل بيانات السيرفر من مخرجات تثبيت OMR Server على ديبان</div>
-    <div class="oc-form">
-      <div class="oc-field">
-        <label>عنوان IP السيرفر</label>
-        <input id="srv-ip" placeholder="مثال: 191.218.161.141" autocomplete="off">
-      </div>
-      <div class="oc-field">
-        <label>رمز التوكن / كلمة سر الإدارة (Admin key)</label>
-        <input id="srv-token" type="password" placeholder="الصق التوكن هنا" autocomplete="off">
-        <div class="oc-help">اتركه فارغاً إذا كان محفوظاً مسبقاً وتريد تغيير الـ IP فقط.</div>
-      </div>
-      <div class="oc-field">
-        <label>منفذ الإدارة</label>
-        <input id="srv-port" value="65500" autocomplete="off">
-      </div>
-      <div class="oc-field">
-        <label>اسم المستخدم</label>
-        <input id="srv-user" value="openmptcprouter" autocomplete="off">
-      </div>
-      <div class="oc-actions">
-        <button class="oc-btn" type="button" id="srv-save">حفظ وربط السيرفر</button>
-      </div>
-      <div class="oc-help" id="srv-hint">بعد الحفظ يسحب الراوتر الإعدادات من السيرفر ويعيد تشغيل النفق والبروكسي.</div>
-    </div>
-  </div>
-</div>
-
-<div class="oc-panel" id="panel-wan">
-  <div class="oc-card">
-    <h3>إضافة / تعديل وصلة برودباند</h3>
-    <div class="oc-meta">اربط منفذ الشبكة (USB/Ethernet) بوصلة WAN1 أو WAN2</div>
-    <div class="oc-form">
-      <div class="oc-field">
-        <label>الوصلة</label>
-        <select id="wan-name"><option value="wan1">WAN1</option><option value="wan2">WAN2</option></select>
-      </div>
-      <div class="oc-field">
-        <label>المنفذ / الجهاز</label>
-        <select id="wan-dev"></select>
-        <div class="oc-help">الأجهزة المتاحة على الراوتر الآن (غير LAN).</div>
-      </div>
-      <div class="oc-field">
-        <label>وضع الدمج (Multipath)</label>
-        <select id="wan-mp">
-          <option value="on">on — يشارك في الدمج</option>
-          <option value="master">master — الوصلة الأساسية</option>
-          <option value="backup">backup — احتياطي</option>
-          <option value="off">off — بدون دمج</option>
-        </select>
-      </div>
-      <div class="oc-actions">
-        <button class="oc-btn" type="button" id="wan-save">حفظ وتفعيل الوصلة</button>
-        <button class="oc-btn ghost" type="button" id="wan-disable">إيقاف الوصلة</button>
-      </div>
-    </div>
-  </div>
-  <div class="oc-card" style="margin-top:12px">
-    <h3>الأجهزة المكتشفة</h3>
-    <table class="oc-table"><thead><tr><th>الجهاز</th><th>MAC</th><th>الكيبل</th></tr></thead><tbody id="dev-rows"></tbody></table>
-  </div>
-</div>
-
-<div class="oc-panel" id="panel-bond">
-  <div class="oc-card">
-    <h3>وضع الدمج (OpenMPTCProuter)</h3>
-    <div class="oc-meta">اختر بروفايل جاهز — الأفضل ضد الانقطاع هو «سلس»</div>
-    <div class="oc-form">
-      <div class="oc-field">
-        <label>البروفايل</label>
-        <select id="bond-profile">
-          <option value="smooth">سلس (موصى به) — تقليل الفصل عند سقوط خط</option>
-          <option value="speed">أقصى سرعة — توزيع على كل الخطوط</option>
-          <option value="failover">تحويل احتياطي — خط أساسي + احتياطي</option>
-        </select>
-        <div class="oc-help" id="bond-help">
-          السلس يستخدم جدولة MPTCP مكرّرة (bpf_red) + كشف أعطال سريع + تفعيل الخطين معاً بدون اعتماد على Master وحيد.
+    <h3>ربط سيرفر OpenMPTCProuter (VPS)</h3>
+    <div class="oc-body">
+      <div class="oc-meta">نفس بيانات معالج الإعداد الأصلي — IP + توكن الإدارة من تثبيت السيرفر</div>
+      <div class="oc-form">
+        <div class="oc-field"><label>عنوان IP السيرفر</label><input id="srv-ip" placeholder="191.x.x.x" autocomplete="off"></div>
+        <div class="oc-field"><label>توكن الإدارة (Admin key)</label><input id="srv-token" type="password" placeholder="اتركه فارغاً إن كان محفوظاً" autocomplete="off">
+          <div class="oc-help" id="srv-hint">يُستخدم لسحب المفاتيح والإعدادات تلقائياً من السيرفر.</div></div>
+        <div class="oc-field"><label>منفذ الإدارة</label><input id="srv-port" value="65500"></div>
+        <div class="oc-field"><label>اسم المستخدم</label><input id="srv-user" value="openmptcprouter"></div>
+        <div class="oc-actions">
+          <button class="oc-btn" type="button" id="srv-save">حفظ وربط السيرفر</button>
+          <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/wizard")%>">فتح المعالج الأصلي</a>
         </div>
       </div>
-      <div class="oc-field">
-        <label>جدولة MPTCP الحالية</label>
-        <input id="bond-sched" readonly>
-      </div>
-      <div class="oc-field">
-        <label>وضع الدمج</label>
-        <input id="bond-master" readonly>
-      </div>
-      <div class="oc-field">
-        <label>Keepalive للنفق</label>
-        <input id="bond-ka" readonly>
-      </div>
-      <div class="oc-actions">
-        <button class="oc-btn" type="button" id="bond-apply">تطبيق بروفايل الدمج</button>
-      </div>
-      <div class="oc-help">
-        ملاحظة: تم إصلاح مشكلة شائعة — النظام كان مضبوط على جدولة <b>blest</b> وهي غير موجودة في نواة 6.12، لذلك الدمج ما كان يشتغل صح.
-      </div>
     </div>
-  </div>
-  <div class="oc-card" style="margin-top:12px">
-    <h3>أدوار الوصلات في الدمج</h3>
-    <table class="oc-table"><thead><tr><th>الوصلة</th><th>الجهاز</th><th>Multipath</th><th>Auto</th></tr></thead><tbody id="bond-wans"></tbody></table>
   </div>
 </div>
 
+<!-- WAN -->
+<div class="oc-panel" id="panel-wan">
+  <div class="oc-card">
+    <h3>إعداد وصلة برودباند / WAN</h3>
+    <div class="oc-body">
+      <div class="oc-meta">مثل لوحة النظام الأساسية: DHCP تلقائي، IP ثابت، أو PPPoE</div>
+      <div class="oc-form">
+        <div class="oc-field">
+          <label>الوصلة</label>
+          <select id="wan-name"><option value="wan1">WAN1</option><option value="wan2">WAN2</option></select>
+        </div>
+        <div class="oc-field">
+          <label>المنفذ / الجهاز</label>
+          <select id="wan-dev"></select>
+        </div>
+        <div class="oc-field">
+          <label>طريقة الاتصال (Protocol)</label>
+          <select id="wan-proto">
+            <option value="dhcp">DHCP — تلقائي (موصى به)</option>
+            <option value="static">Static — عنوان IP ثابت</option>
+            <option value="pppoe">PPPoE — برودباند باسم مستخدم/كلمة مرور</option>
+          </select>
+        </div>
+        <div id="wan-static" style="display:none">
+          <div class="oc-field"><label>عنوان IP</label><input id="wan-ip" placeholder="192.168.1.10"></div>
+          <div class="oc-field"><label>القناع (Netmask)</label><input id="wan-mask" placeholder="255.255.255.0" value="255.255.255.0"></div>
+          <div class="oc-field"><label>البوابة (Gateway)</label><input id="wan-gw" placeholder="192.168.1.1"></div>
+          <div class="oc-field"><label>DNS</label><input id="wan-dns" placeholder="1.1.1.1 8.8.8.8"><div class="oc-help">افصل العناوين بمسافة</div></div>
+        </div>
+        <div id="wan-pppoe" style="display:none">
+          <div class="oc-field"><label>اسم مستخدم PPPoE</label><input id="wan-user" autocomplete="off"></div>
+          <div class="oc-field"><label>كلمة مرور PPPoE</label><input id="wan-pass" type="password" autocomplete="off"></div>
+        </div>
+        <div class="oc-field">
+          <label>دور الدمج (Multipath)</label>
+          <select id="wan-mp">
+            <option value="on">on — يشارك في الدمج</option>
+            <option value="master">master — أساسي</option>
+            <option value="backup">backup — احتياطي</option>
+            <option value="off">off — بدون دمج</option>
+          </select>
+        </div>
+        <div class="oc-actions">
+          <button class="oc-btn" type="button" id="wan-save">حفظ وتطبيق الوصلة</button>
+          <button class="oc-btn ghost" type="button" id="wan-disable">إيقاف الوصلة</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="oc-card">
+    <h3>الأجهزة المكتشفة</h3>
+    <div class="oc-body" style="padding:0">
+      <table class="oc-table"><thead><tr><th>الجهاز</th><th>MAC</th><th>الكيبل</th></tr></thead><tbody id="dev-rows"></tbody></table>
+    </div>
+  </div>
+  <div class="oc-card">
+    <h3>الوصلات الحالية</h3>
+    <div class="oc-body" style="padding:0">
+      <table class="oc-table"><thead><tr><th>الاسم</th><th>الجهاز</th><th>البروتوكول</th><th>Multipath</th><th>IP/إعداد</th></tr></thead><tbody id="wan-rows"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- BOND -->
+<div class="oc-panel" id="panel-bond">
+  <div class="oc-card">
+    <h3>وضع الدمج (MPTCP / Glorytun)</h3>
+    <div class="oc-body">
+      <div class="oc-form">
+        <div class="oc-field">
+          <label>بروفايل جاهز</label>
+          <select id="bond-profile">
+            <option value="smooth">سلس — ضد الانقطاع (موصى به)</option>
+            <option value="speed">أقصى سرعة — توزيع الحمل</option>
+            <option value="failover">تحويل احتياطي</option>
+          </select>
+          <div class="oc-help" id="bond-help">السلس: الخطّان معاً + جدولة bpf_red + كشف أعطال سريع.</div>
+        </div>
+        <div class="oc-field"><label>جدولة MPTCP</label><input id="bond-sched" readonly></div>
+        <div class="oc-field"><label>وضع الدمج</label><input id="bond-master" readonly></div>
+        <div class="oc-field"><label>Keepalive النفق</label><input id="bond-ka" readonly></div>
+        <div class="oc-actions">
+          <button class="oc-btn" type="button" id="bond-apply">تطبيق بروفايل الدمج</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="oc-card">
+    <h3>أدوار الوصلات</h3>
+    <div class="oc-body" style="padding:0">
+      <table class="oc-table"><thead><tr><th>الوصلة</th><th>الجهاز</th><th>Multipath</th><th>Auto</th></tr></thead><tbody id="bond-wans"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS -->
 <div class="oc-panel" id="panel-settings">
   <div class="oc-card">
-    <h3>إعدادات النظام</h3>
-    <div class="oc-form">
-      <div class="oc-field">
-        <label>نوع النفق (VPN)</label>
-        <select id="set-vpn">
-          <option value="glorytun_udp">Glorytun UDP (موصى به)</option>
-          <option value="glorytun">Glorytun TCP</option>
-          <option value="openvpn">OpenVPN</option>
-        </select>
-      </div>
-      <div class="oc-field">
-        <label>البروكسي</label>
-        <select id="set-proxy">
-          <option value="shadowsocks-rust">Shadowsocks-Rust</option>
-          <option value="shadowsocks">Shadowsocks</option>
-          <option value="v2ray">V2Ray</option>
-          <option value="none">بدون</option>
-        </select>
-      </div>
-      <div class="oc-field">
-        <label>وضع الدمج</label>
-        <select id="set-master">
-          <option value="balancing">balancing — توزيع الحمل</option>
-          <option value="failover">failover — تحويل عند العطل</option>
-        </select>
-      </div>
-      <div class="oc-field">
-        <label>عنوان LAN للراوتر</label>
-        <input id="set-lan" placeholder="192.168.200.1" autocomplete="off">
-        <div class="oc-help">تغييره يعيد تشغيل الشبكة وقد تحتاج تعيد تحميل الصفحة بالعنوان الجديد.</div>
-      </div>
-      <div class="oc-actions">
-        <button class="oc-btn" type="button" id="set-save">حفظ الإعدادات</button>
-        <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/wizard")%>">المعالج الكامل الأصلي</a>
+    <h3>إعدادات عامة</h3>
+    <div class="oc-body">
+      <div class="oc-form">
+        <div class="oc-field">
+          <label>نوع النفق (VPN)</label>
+          <select id="set-vpn">
+            <option value="glorytun_udp">Glorytun UDP</option>
+            <option value="glorytun">Glorytun TCP</option>
+            <option value="openvpn">OpenVPN</option>
+          </select>
+        </div>
+        <div class="oc-field">
+          <label>البروكسي</label>
+          <select id="set-proxy">
+            <option value="shadowsocks-rust">Shadowsocks-Rust</option>
+            <option value="shadowsocks">Shadowsocks</option>
+            <option value="v2ray">V2Ray</option>
+            <option value="none">بدون</option>
+          </select>
+        </div>
+        <div class="oc-field">
+          <label>وضع الدمج العام</label>
+          <select id="set-master">
+            <option value="balancing">balancing — توزيع</option>
+            <option value="failover">failover — تحويل</option>
+          </select>
+        </div>
+        <div class="oc-field">
+          <label>عنوان LAN للراوتر</label>
+          <input id="set-lan" placeholder="192.168.200.1">
+          <div class="oc-help">بعد التغيير افتح العنوان الجديد في المتصفح.</div>
+        </div>
+        <div class="oc-actions">
+          <button class="oc-btn" type="button" id="set-save">حفظ الإعدادات</button>
+          <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/wizard")%>">المعالج الكامل</a>
+          <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/settings")%>">إعدادات متقدمة أصلية</a>
+          <a class="oc-btn ghost" href="<%=url("admin/network/network")%>">شبكة LuCI</a>
+        </div>
       </div>
     </div>
   </div>
@@ -189,11 +206,14 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
 
 <script type="text/javascript">//<![CDATA[
 (function(){
-  var busy=false;
+  var busy=false, wanCache=[];
   function $(id){ return document.getElementById(id); }
   function toast(m){ var t=$('oc-toast'); t.textContent=m; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(function(){ t.classList.remove('show'); }, 2800); }
-  function api(a, extra){
+  function api(a, extra, post){
     var u='/cgi-bin/omr-api?a='+encodeURIComponent(a)+(extra||'');
+    if(post){
+      return fetch('/cgi-bin/omr-api',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'a='+encodeURIComponent(a)+(extra||''),cache:'no-store'}).then(function(r){return r.json();});
+    }
     return fetch(u,{cache:'no-store'}).then(function(r){ return r.json(); });
   }
   function pill(ok,okT,badT,warn){
@@ -202,7 +222,6 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     return '<span class="oc-pill bad">'+badT+'</span>';
   }
 
-  /* tabs */
   document.querySelectorAll('.oc-tab').forEach(function(tab){
     tab.onclick=function(){
       document.querySelectorAll('.oc-tab').forEach(function(x){ x.classList.remove('active'); });
@@ -213,55 +232,75 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     };
   });
 
+  function toggleProto(){
+    var p=$('wan-proto').value;
+    $('wan-static').style.display = (p==='static')?'block':'none';
+    $('wan-pppoe').style.display = (p==='pppoe')?'block':'none';
+  }
+  $('wan-proto').onchange=toggleProto;
+
+  function fillWanForm(name){
+    var w = wanCache.filter(function(x){return x.name===name;})[0];
+    if(!w) return;
+    try{ if(w.dev) $('wan-dev').value=w.dev; }catch(e){}
+    if(w.proto) $('wan-proto').value=w.proto;
+    if(w.multipath) $('wan-mp').value=w.multipath;
+    $('wan-ip').value=w.ip||'';
+    $('wan-mask').value=w.netmask||'255.255.255.0';
+    $('wan-gw').value=w.gateway||'';
+    $('wan-dns').value=w.dns||'';
+    $('wan-user').value=w.username||'';
+    toggleProto();
+  }
+  $('wan-name').onchange=function(){ fillWanForm($('wan-name').value); };
+
   function renderStatus(d){
     var cards='', wanUp=0;
     (d.wans||[]).forEach(function(w,idx){
       if(w.net) wanUp++;
       var cls='bad', txt='غير متصلة';
-      if(w.net){cls='ok';txt='متصلة بالإنترنت';}
-      else if(w.link){cls='warn';txt='الكيبل متصل، بلا إنترنت';}
-      else if(w.up){cls='warn';txt='مفعّلة، بلا كيبل';}
-      cards += '<div class="oc-card"><h3><span class="oc-dot '+cls+'"></span>الوصلة '+(idx+1)+' ('+w.name+')</h3>'
-        +'<div class="oc-meta">'+(w.dev||'-')+' · '+(w.proto||'')+' · mp='+(w.multipath||'-')+'</div>'
+      if(w.net){cls='ok';txt='متصلة';}
+      else if(w.link){cls='warn';txt='كيبل بلا إنترنت';}
+      else if(w.up){cls='warn';txt='مفعّلة بلا كيبل';}
+      cards += '<div class="oc-mini"><h4><span class="oc-dot '+cls+'"></span>'+w.name+'</h4>'
         +'<div class="oc-row"><span>الحالة</span>'+pill(w.net,'إنترنت',txt,w.link||w.up)+'</div>'
-        +'<div class="oc-row"><span>عنوان IP</span><span>'+(w.ip||'—')+'</span></div>'
-        +'<div class="oc-row"><span>الكيبل</span><span>'+(w.link?('نعم'+(w.speed?' · '+w.speed+'Mb':'')):'لا يوجد')+'</span></div>'
+        +'<div class="oc-row"><span>الجهاز</span><span>'+(w.dev||'—')+'</span></div>'
+        +'<div class="oc-row"><span>IP</span><span>'+(w.ip||'—')+'</span></div>'
+        +'<div class="oc-row"><span>البروتوكول</span><span>'+(w.proto||'—')+'</span></div>'
         +'<div class="oc-cardbtns">'
-        +'<button class="oc-btn" type="button" data-a="wanup" data-i="'+w.name+'" data-l="تشغيل '+w.name+'">تشغيل</button>'
-        +'<button class="oc-btn ghost" type="button" data-a="wanrestart" data-i="'+w.name+'" data-l="إعادة '+w.name+'">إعادة</button>'
-        +'<button class="oc-btn ghost" type="button" data-a="wandown" data-i="'+w.name+'" data-l="إيقاف '+w.name+'">إيقاف</button>'
+        +'<button class="oc-btn" type="button" data-a="wanup" data-i="'+w.name+'" data-l="تشغيل">تشغيل</button>'
+        +'<button class="oc-btn ghost" type="button" data-a="wanrestart" data-i="'+w.name+'" data-l="إعادة">إعادة</button>'
+        +'<button class="oc-btn ghost" type="button" data-a="wandown" data-i="'+w.name+'" data-l="إيقاف">إيقاف</button>'
         +'</div></div>';
     });
     var v=d.vps||{}, t=d.tunnel||{}, p=d.proxy||{};
-    cards += '<div class="oc-card"><h3><span class="oc-dot '+(v.reachable?'ok':'bad')+'"></span>السيرفر (VPS)</h3>'
-      +'<div class="oc-meta">'+(v.host||'-')+'</div>'
+    cards += '<div class="oc-mini"><h4><span class="oc-dot '+(v.reachable?'ok':'bad')+'"></span>السيرفر</h4>'
+      +'<div class="oc-row"><span>العنوان</span><span>'+(v.host||'—')+'</span></div>'
       +'<div class="oc-row"><span>الوصول</span>'+pill(v.reachable,'يعمل','لا يصل')+'</div></div>';
-    cards += '<div class="oc-card"><h3><span class="oc-dot '+(t.up?'ok':'bad')+'"></span>النفق (VPN)</h3>'
+    cards += '<div class="oc-mini"><h4><span class="oc-dot '+(t.up?'ok':'bad')+'"></span>النفق VPN</h4>'
       +'<div class="oc-row"><span>الحالة</span>'+pill(t.up,'يعمل','متوقف',t.service)+'</div>'
-      +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="vpn" data-l="إعادة تشغيل النفق">إعادة تشغيل النفق</button></div></div>';
-    cards += '<div class="oc-card"><h3><span class="oc-dot '+(p.running?'ok':'bad')+'"></span>البروكسي</h3>'
+      +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="vpn" data-l="إعادة النفق">إعادة تشغيل</button></div></div>';
+    cards += '<div class="oc-mini"><h4><span class="oc-dot '+(p.running?'ok':'bad')+'"></span>البروكسي</h4>'
       +'<div class="oc-row"><span>الحالة</span>'+pill(p.running,'يعمل','متوقف')+'</div>'
-      +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="proxy" data-l="إعادة تشغيل البروكسي">إعادة التشغيل</button></div></div>';
+      +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="proxy" data-l="إعادة البروكسي">إعادة تشغيل</button></div></div>';
     $('oc-grid').innerHTML=cards;
 
     var problems=[];
-    if(!v.reachable) problems.push({lvl:'bad',t:'السيرفر غير متصل',d:'افتح تبويب «ربط السيرفر» وأدخل الـ IP والتوكن، أو وصّل وصلة إنترنت أولاً.'});
-    if(v.reachable && !t.up) problems.push({lvl:'bad',t:'النفق متوقف',d:'اضغط إعادة تشغيل النفق، أو أعد ربط السيرفر لسحب المفاتيح.'});
+    if(!v.reachable) problems.push({lvl:'bad',t:'السيرفر غير متصل',d:'وصّل وصلة إنترنت ثم تبويب السيرفر، أو اضغط إعادة الاتصال.'});
+    if(v.reachable && !t.up) problems.push({lvl:'bad',t:'النفق متوقف',d:'أعد ربط السيرفر أو أعد تشغيل النفق.'});
     if(t.up && !p.running) problems.push({lvl:'warn',t:'البروكسي متوقف',d:'اضغط إعادة تشغيل البروكسي.'});
-    (d.wans||[]).forEach(function(w,idx){
-      if(!w.link) problems.push({lvl:'warn',t:'الوصلة '+(idx+1)+' بلا كيبل',d:'افتح «إضافة برودباند» واربط المنفذ الصحيح.'});
-    });
+    (d.wans||[]).forEach(function(w){ if(!w.link) problems.push({lvl:'warn',t:w.name+' بلا كيبل',d:'افتح تبويب الوصلات واربط المنفذ.'}); });
     var healthy=v.reachable && t.up && p.running && wanUp>=1;
     var orb=$('oc-orb');
-    if(healthy){ orb.className='oc-orb ok'; orb.textContent='✓'; $('oc-title').textContent='كل شيء يعمل'; $('oc-desc').textContent=wanUp+' وصلة · النفق والسيرفر يعملان'; }
-    else if(problems.some(function(x){return x.lvl==='bad';})){ orb.className='oc-orb bad'; orb.textContent='!'; $('oc-title').textContent='يوجد مشكلة — استخدم التبويبات للإعداد'; $('oc-desc').textContent='الحالة / السيرفر / البرودباند / الإعدادات'; }
-    else { orb.className='oc-orb warn'; orb.textContent='!'; $('oc-title').textContent='يعمل مع ملاحظات'; $('oc-desc').textContent='راجع التنبيهات أو أكمل الإعداد'; }
+    if(healthy){ orb.className='oc-orb ok'; orb.textContent='✓'; $('oc-title').textContent='النظام يعمل'; $('oc-desc').textContent=wanUp+' وصلة نشطة'; }
+    else if(problems.some(function(x){return x.lvl==='bad';})){ orb.className='oc-orb bad'; orb.textContent='!'; $('oc-title').textContent='يحتاج إعداد / إصلاح'; $('oc-desc').textContent='استخدم التبويبات بالأعلى'; }
+    else { orb.className='oc-orb warn'; orb.textContent='!'; $('oc-title').textContent='يعمل مع ملاحظات'; $('oc-desc').textContent='راجع التنبيهات'; }
     $('oc-advice').innerHTML = problems.length ? problems.map(function(pr){ return '<div class="oc-alert '+pr.lvl+'"><b>'+pr.t+'</b>'+pr.d+'</div>'; }).join('')
-      : '<div class="oc-alert ok"><b>لا توجد مشاكل</b>النظام يعمل بشكل سليم.</div>';
+      : '<div class="oc-alert ok"><b>لا توجد مشاكل</b>كل الخدمات الأساسية تعمل.</div>';
     if(d.version) $('oc-curVer').textContent=d.version;
   }
 
-  function loadStatus(){ api('status').then(renderStatus).catch(function(){ $('oc-title').textContent='تعذّر الاتصال بالراوتر'; }); }
+  function loadStatus(){ api('status').then(renderStatus).catch(function(){ $('oc-title').textContent='تعذّر الاتصال'; }); }
 
   function loadConfig(){
     api('config').then(function(c){
@@ -269,7 +308,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         $('srv-ip').value=c.server.ip||'';
         $('srv-port').value=c.server.port||'65500';
         $('srv-user').value=c.server.username||'openmptcprouter';
-        $('srv-hint').textContent = c.server.token_set ? 'التوكن محفوظ على الراوتر. أدخل توكن جديد فقط إذا تغيّر.' : 'لا يوجد توكن محفوظ — الصقه من مخرجات تثبيت السيرفر.';
+        $('srv-hint').textContent = c.server.token_set ? 'التوكن محفوظ. أدخل جديداً فقط إذا تغيّر.' : 'لا يوجد توكن — الصقه من مخرجات تثبيت السيرفر.';
       }
       if(c.settings){
         if(c.settings.vpn) $('set-vpn').value=c.settings.vpn;
@@ -277,25 +316,27 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         if(c.settings.master) $('set-master').value=c.settings.master;
         $('set-lan').value=c.settings.lan_ip||'';
         if(c.settings.bond_profile) $('bond-profile').value=c.settings.bond_profile;
-        $('bond-sched').value=(c.settings.mptcp_live||c.settings.mptcp_scheduler||'—')+'  (متاح: '+(c.settings.mptcp_available||'')+')';
+        $('bond-sched').value=(c.settings.mptcp_live||c.settings.mptcp_scheduler||'—');
         $('bond-master').value=c.settings.master||'—';
         $('bond-ka').value=c.settings.keepalive||'—';
       }
       var sel=$('wan-dev'); sel.innerHTML='';
-      var rows='', brows='';
+      var rows='', brows='', wrows='';
       (c.devices||[]).forEach(function(d){
         if(d.name==='eth0' || d.name==='bonding_masters') return;
-        var o=document.createElement('option'); o.value=d.name; o.textContent=d.name+(d.carrier==1?' (كيبل واصل)':'');
+        var o=document.createElement('option'); o.value=d.name; o.textContent=d.name+(d.carrier==1?' — كيبل واصل':'');
         sel.appendChild(o);
         rows += '<tr><td>'+d.name+'</td><td>'+(d.mac||'')+'</td><td>'+(d.carrier==1?'واصل':'مفصول')+'</td></tr>';
       });
       $('dev-rows').innerHTML=rows||'<tr><td colspan="3">لا توجد أجهزة</td></tr>';
-      (c.wans||[]).forEach(function(w){
+      wanCache=c.wans||[];
+      wanCache.forEach(function(w){
         brows += '<tr><td>'+w.name+'</td><td>'+(w.dev||'')+'</td><td>'+(w.multipath||'')+'</td><td>'+(w.auto||'')+'</td></tr>';
+        wrows += '<tr><td>'+w.name+'</td><td>'+(w.dev||'')+'</td><td>'+(w.proto||'')+'</td><td>'+(w.multipath||'')+'</td><td>'+(w.ip||w.username||'—')+'</td></tr>';
       });
-      $('bond-wans').innerHTML=brows||'<tr><td colspan="4">لا توجد وصلات</td></tr>';
-      var wans=c.wans||[];
-      if(wans[0] && wans[0].dev){ $('wan-name').value=wans[0].name; try{$('wan-dev').value=wans[0].dev;}catch(e){}; if(wans[0].multipath) $('wan-mp').value=wans[0].multipath; }
+      $('bond-wans').innerHTML=brows||'<tr><td colspan="4">—</td></tr>';
+      $('wan-rows').innerHTML=wrows||'<tr><td colspan="5">—</td></tr>';
+      if(wanCache[0]){ $('wan-name').value=wanCache[0].name; fillWanForm(wanCache[0].name); }
     }).catch(function(){ toast('تعذّر قراءة الإعدادات'); });
   }
 
@@ -306,95 +347,93 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       .catch(function(){ toast('فشل: '+label); })
       .finally(function(){ setTimeout(function(){ busy=false; }, wait); });
   }
-
   document.addEventListener('click', function(ev){
     var b=ev.target.closest('[data-a]');
     if(b) doAction(b.getAttribute('data-a'), b.getAttribute('data-l')||'', b.getAttribute('data-i')||'');
   });
-  $('oc-reconnect').onclick=function(){ doAction('reconnect','إعادة الاتصال بالكامل'); };
+  $('oc-reconnect').onclick=function(){ doAction('reconnect','إعادة الاتصال'); };
   $('oc-check').onclick=function(){
-    $('oc-remoteVer').textContent='جاري الفحص…';
+    $('oc-remoteVer').textContent='...';
     api('version').then(function(d){
       $('oc-curVer').textContent=d.local||'—'; $('oc-remoteVer').textContent=d.remote||'؟';
-      if(d.remote && d.local && d.remote!==d.local){ $('oc-update').style.display=''; toast('تحديث متوفر: '+d.remote); }
+      if(d.remote && d.local && d.remote!==d.local){ $('oc-update').style.display=''; toast('تحديث متوفر'); }
       else { $('oc-update').style.display='none'; if(d.remote) toast('أحدث إصدار'); }
-    }).catch(function(){ $('oc-remoteVer').textContent='فشل الفحص'; });
+    }).catch(function(){ $('oc-remoteVer').textContent='فشل'; });
   };
   $('oc-update').onclick=function(){
-    api('update').then(function(d){ toast('تم التحديث إلى '+(d.version||'')); setTimeout(function(){ location.reload(); }, 2500); })
+    api('update').then(function(d){ toast('تم التحديث '+ (d.version||'')); setTimeout(function(){ location.reload(); }, 2500); })
       .catch(function(){ toast('فشل التحديث'); });
   };
 
   $('srv-save').onclick=function(){
-    if(busy) return; busy=true;
-    var q='&host='+encodeURIComponent($('srv-ip').value.trim())
+    if(busy) return; busy=true; toast('جاري ربط السيرفر…');
+    var extra='&host='+encodeURIComponent($('srv-ip').value.trim())
       +'&token='+encodeURIComponent($('srv-token').value.trim())
       +'&port='+encodeURIComponent($('srv-port').value.trim()||'65500')
       +'&user='+encodeURIComponent($('srv-user').value.trim()||'openmptcprouter');
-    toast('جاري ربط السيرفر…');
-    api('setserver', q).then(function(d){
+    api('setserver', extra, true).then(function(d){
       if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
-      toast('تم ربط السيرفر '+d.host); $('srv-token').value='';
+      toast('تم ربط السيرفر'); $('srv-token').value='';
       setTimeout(function(){ busy=false; loadStatus(); loadConfig(); }, 5000);
     }).catch(function(){ toast('فشل الربط'); busy=false; });
   };
 
   $('wan-save').onclick=function(){
-    if(busy) return; busy=true;
-    var q='&i='+encodeURIComponent($('wan-name').value)
+    if(busy) return; busy=true; toast('جاري حفظ الوصلة…');
+    var extra='&i='+encodeURIComponent($('wan-name').value)
       +'&dev='+encodeURIComponent($('wan-dev').value)
+      +'&proto='+encodeURIComponent($('wan-proto').value)
       +'&multipath='+encodeURIComponent($('wan-mp').value)
-      +'&enable=1';
-    toast('جاري تفعيل الوصلة…');
-    api('setwan', q).then(function(d){
+      +'&enable=1'
+      +'&ip='+encodeURIComponent($('wan-ip').value.trim())
+      +'&netmask='+encodeURIComponent($('wan-mask').value.trim())
+      +'&gateway='+encodeURIComponent($('wan-gw').value.trim())
+      +'&dns='+encodeURIComponent($('wan-dns').value.trim())
+      +'&username='+encodeURIComponent($('wan-user').value.trim())
+      +'&password='+encodeURIComponent($('wan-pass').value);
+    api('setwan', extra, true).then(function(d){
       if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
-      toast('تم تفعيل '+d.i+' على '+d.dev);
+      toast('تم حفظ '+d.i+' ('+d.proto+')');
       setTimeout(function(){ busy=false; loadStatus(); loadConfig(); }, 4000);
     }).catch(function(){ toast('فشل حفظ الوصلة'); busy=false; });
   };
   $('wan-disable').onclick=function(){
     if(busy) return; busy=true;
-    var q='&i='+encodeURIComponent($('wan-name').value)
-      +'&dev='+encodeURIComponent($('wan-dev').value||'eth1')
-      +'&enable=0';
-    api('setwan', q).then(function(){ toast('تم إيقاف الوصلة'); setTimeout(function(){ busy=false; loadStatus(); }, 2500); })
+    var extra='&i='+encodeURIComponent($('wan-name').value)+'&dev='+encodeURIComponent($('wan-dev').value||'eth1')+'&enable=0';
+    api('setwan', extra, true).then(function(){ toast('تم إيقاف الوصلة'); setTimeout(function(){ busy=false; loadStatus(); loadConfig(); }, 2500); })
       .catch(function(){ toast('فشل'); busy=false; });
-  };
-
-  $('set-save').onclick=function(){
-    if(busy) return; busy=true;
-    var lan=$('set-lan').value.trim();
-    var q='&vpn='+encodeURIComponent($('set-vpn').value)
-      +'&proxy='+encodeURIComponent($('set-proxy').value)
-      +'&master='+encodeURIComponent($('set-master').value)
-      +'&lan_ip='+encodeURIComponent(lan);
-    api('setsettings', q).then(function(d){
-      toast('تم حفظ الإعدادات');
-      if(d.lan_changed){ toast('تم تغيير LAN — افتح العنوان الجديد بعد لحظات'); }
-      setTimeout(function(){ busy=false; loadConfig(); }, 2000);
-    }).catch(function(){ toast('فشل الحفظ'); busy=false; });
   };
 
   $('bond-profile').onchange=function(){
     var p=$('bond-profile').value, h=$('bond-help');
-    if(p==='smooth') h.textContent='السلس: الخطّان يعملان معاً + جدولة مكرّرة bpf_red + كشف أعطال سريع. أفضل ضد الانقطاع.';
-    else if(p==='speed') h.textContent='أقصى سرعة: توزيع Round-Robin على الخطوط. أسرع تجميع، أقل حماية ضد انقطاع خط.';
-    else h.textContent='تحويل احتياطي: WAN1 أساسي وWAN2 احتياطي. انتقال أنظف عند العطل، بدون دمج حقيقي للسرعة.';
+    if(p==='smooth') h.textContent='سلس: الخطّان معاً + bpf_red + كشف أعطال سريع — أفضل ضد الانقطاع.';
+    else if(p==='speed') h.textContent='أقصى سرعة: توزيع Round-Robin. تجميع أقوى، حماية أقل.';
+    else h.textContent='تحويل احتياطي: أساسي + احتياطي بدون دمج سرعة.';
   };
   $('bond-apply').onclick=function(){
-    if(busy) return; busy=true;
-    toast('جاري تطبيق بروفايل الدمج…');
-    api('setbond', '&profile='+encodeURIComponent($('bond-profile').value)).then(function(d){
+    if(busy) return; busy=true; toast('تطبيق بروفايل الدمج…');
+    api('setbond', '&profile='+encodeURIComponent($('bond-profile').value), true).then(function(d){
       if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
-      toast('تم: '+d.profile+' · scheduler='+d.scheduler);
-      setTimeout(function(){ busy=false; loadConfig(); loadStatus(); }, 3500);
-    }).catch(function(){ toast('فشل تطبيق الدمج'); busy=false; });
+      toast('تم: '+d.profile+' / '+d.scheduler);
+      setTimeout(function(){ busy=false; loadConfig(); }, 3500);
+    }).catch(function(){ toast('فشل'); busy=false; });
+  };
+
+  $('set-save').onclick=function(){
+    if(busy) return; busy=true;
+    var extra='&vpn='+encodeURIComponent($('set-vpn').value)
+      +'&proxy='+encodeURIComponent($('set-proxy').value)
+      +'&master='+encodeURIComponent($('set-master').value)
+      +'&lan_ip='+encodeURIComponent($('set-lan').value.trim());
+    api('setsettings', extra, true).then(function(d){
+      toast('تم حفظ الإعدادات');
+      if(d.lan_changed) toast('تغيّر LAN — افتح العنوان الجديد');
+      setTimeout(function(){ busy=false; loadConfig(); }, 2000);
+    }).catch(function(){ toast('فشل الحفظ'); busy=false; });
   };
 
   loadStatus();
-  setInterval(function(){
-    if($('panel-status').classList.contains('active')) loadStatus();
-  }, 7000);
+  setInterval(function(){ if($('panel-status').classList.contains('active')) loadStatus(); }, 7000);
 })();
 //]]></script>
 <%+footer%>
