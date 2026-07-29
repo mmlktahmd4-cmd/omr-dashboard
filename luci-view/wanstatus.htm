@@ -265,19 +265,41 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   }
   $('wan-name').onchange=function(){ fillWanForm($('wan-name').value); };
 
+  function fmtBps(b){
+    b=Number(b)||0;
+    if(b<=0) return '0';
+    if(b>=1000000) return (b/1000000).toFixed(2)+' Mbps';
+    if(b>=1000) return (b/1000).toFixed(0)+' Kbps';
+    return b+' bps';
+  }
+  function fmtBytes(n){
+    n=Number(n)||0;
+    if(n>=1073741824) return (n/1073741824).toFixed(2)+' GB';
+    if(n>=1048576) return (n/1048576).toFixed(1)+' MB';
+    if(n>=1024) return (n/1024).toFixed(0)+' KB';
+    return n+' B';
+  }
   function renderStatus(d){
-    var cards='', wanUp=0;
+    var cards='', wanUp=0, sumRx=0, sumTx=0;
     (d.wans||[]).forEach(function(w,idx){
       if(w.net) wanUp++;
+      sumRx += Number(w.rx_bps)||0; sumTx += Number(w.tx_bps)||0;
       var cls='bad', txt='غير متصلة';
-      if(w.net){cls='ok';txt='متصلة';}
+      if(w.net){cls='ok';txt='إنترنت';}
       else if(w.link){cls='warn';txt='كيبل بلا إنترنت';}
       else if(w.up){cls='warn';txt='مفعّلة بلا كيبل';}
-      cards += '<div class="oc-mini"><h4><span class="oc-dot '+cls+'"></span>'+w.name+'</h4>'
+      cards += '<div class="oc-mini"><h4><span class="oc-dot '+cls+'"></span>'+String(w.name||'').toUpperCase()+'</h4>'
         +'<div class="oc-row"><span>الحالة</span>'+pill(w.net,'إنترنت',txt,w.link||w.up)+'</div>'
-        +'<div class="oc-row"><span>الجهاز</span><span>'+(w.dev||'—')+'</span></div>'
+        +'<div class="oc-row"><span>بنج الخط</span><b>'+(w.lat?w.lat+' ms':'—')+'</b></div>'
+        +'<div class="oc-row"><span>بنج البوابة</span><span>'+(w.gw_lat?w.gw_lat+' ms':'—')+'</span></div>'
+        +'<div class="oc-row"><span>السحب ↓</span><b style="color:#1f9d55">'+(w.net?fmtBps(w.rx_bps):'—')+'</b></div>'
+        +'<div class="oc-row"><span>الرفع ↑</span><b style="color:#2f6fed">'+(w.net?fmtBps(w.tx_bps):'—')+'</b></div>'
+        +'<div class="oc-row"><span>الإجمالي ↓/↑</span><span>'+fmtBytes(w.rx_bytes)+' / '+fmtBytes(w.tx_bytes)+'</span></div>'
+        +'<div class="oc-row"><span>الجهاز</span><span>'+(w.dev||'—')+(w.speed?' · '+w.speed+'Mb':'')+'</span></div>'
         +'<div class="oc-row"><span>IP</span><span>'+(w.ip||'—')+'</span></div>'
+        +'<div class="oc-row"><span>البوابة</span><span>'+(w.gateway||'—')+'</span></div>'
         +'<div class="oc-row"><span>البروتوكول</span><span>'+(w.proto||'—')+'</span></div>'
+        +'<div class="oc-row"><span>الدمج</span><span>'+(w.multipath||'—')+'</span></div>'
         +'<div class="oc-cardbtns">'
         +'<button class="oc-btn" type="button" data-a="wanup" data-i="'+w.name+'" data-l="تشغيل">تشغيل</button>'
         +'<button class="oc-btn ghost" type="button" data-a="wanrestart" data-i="'+w.name+'" data-l="إعادة">إعادة</button>'
@@ -287,13 +309,21 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     var v=d.vps||{}, t=d.tunnel||{}, p=d.proxy||{};
     cards += '<div class="oc-mini"><h4><span class="oc-dot '+(v.reachable?'ok':'bad')+'"></span>السيرفر</h4>'
       +'<div class="oc-row"><span>العنوان</span><span>'+(v.host||'—')+'</span></div>'
-      +'<div class="oc-row"><span>الوصول</span>'+pill(v.reachable,'يعمل','لا يصل')+'</div></div>';
+      +'<div class="oc-row"><span>الوصول</span>'+pill(v.reachable,'يعمل','لا يصل')+'</div>'
+      +'<div class="oc-row"><span>بنج السيرفر</span><b>'+(v.lat?v.lat+' ms':'—')+'</b></div></div>';
     cards += '<div class="oc-mini"><h4><span class="oc-dot '+(t.up?'ok':'bad')+'"></span>النفق VPN</h4>'
       +'<div class="oc-row"><span>الحالة</span>'+pill(t.up,'يعمل','متوقف',t.service)+'</div>'
+      +'<div class="oc-row"><span>بنج النفق</span><b>'+(t.lat?t.lat+' ms':'—')+'</b></div>'
+      +'<div class="oc-row"><span>المسار</span><span>'+(t.dev||'tun0')+' → '+(t.peer||'')+'</span></div>'
       +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="vpn" data-l="إعادة النفق">إعادة تشغيل</button></div></div>';
     cards += '<div class="oc-mini"><h4><span class="oc-dot '+(p.running?'ok':'bad')+'"></span>البروكسي</h4>'
       +'<div class="oc-row"><span>الحالة</span>'+pill(p.running,'يعمل','متوقف')+'</div>'
+      +'<div class="oc-row"><span>النوع</span><span>'+(p.name||'—')+'</span></div>'
       +'<div class="oc-cardbtns"><button class="oc-btn" type="button" data-a="proxy" data-l="إعادة البروكسي">إعادة تشغيل</button></div></div>';
+    cards += '<div class="oc-mini"><h4><span class="oc-dot ok"></span>إجمالي السحب</h4>'
+      +'<div class="oc-row"><span>السحب الكلي ↓</span><b style="color:#1f9d55">'+fmtBps(sumRx)+'</b></div>'
+      +'<div class="oc-row"><span>الرفع الكلي ↑</span><b style="color:#2f6fed">'+fmtBps(sumTx)+'</b></div>'
+      +'<div class="oc-row"><span>الوصلات النشطة</span><span>'+wanUp+'</span></div></div>';
     $('oc-grid').innerHTML=cards;
 
     var problems=[];
@@ -305,7 +335,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     var orb=$('oc-orb');
     var howto=$('oc-howto');
     if(howto) howto.style.display = (wanUp<1 || !v.reachable) ? 'block' : 'none';
-    if(healthy){ orb.className='oc-orb ok'; orb.textContent='✓'; $('oc-title').textContent='النظام يعمل'; $('oc-desc').textContent=wanUp+' وصلة نشطة'; }
+    if(healthy){ orb.className='oc-orb ok'; orb.textContent='✓'; $('oc-title').textContent='النظام يعمل'; $('oc-desc').textContent=wanUp+' وصلة · سحب '+fmtBps(sumRx); }
     else if(problems.some(function(x){return x.lvl==='bad';})){ orb.className='oc-orb bad'; orb.textContent='!'; $('oc-title').textContent='يحتاج إعداد / إصلاح'; $('oc-desc').textContent='استخدم التبويبات بالأعلى'; }
     else { orb.className='oc-orb warn'; orb.textContent='!'; $('oc-title').textContent='يعمل مع ملاحظات'; $('oc-desc').textContent='راجع التنبيهات'; }
     $('oc-advice').innerHTML = problems.length ? problems.map(function(pr){ return '<div class="oc-alert '+pr.lvl+'"><b>'+pr.t+'</b>'+pr.d+'</div>'; }).join('')

@@ -58,6 +58,9 @@ status_json() {
     [ -z "$_dev" ] && _dev=$(uci -q get network."$w".device)
     _ip=$(printf '%s' "$_st" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
     _proto=$(printf '%s' "$_st" | jsonfilter -e '@.proto' 2>/dev/null)
+    _gw=$(printf '%s' "$_st" | jsonfilter -e '@.route[0].nexthop' 2>/dev/null)
+    [ -z "$_gw" ] && _gw=$(printf '%s' "$_st" | jsonfilter -e '@.inactive.route[0].nexthop' 2>/dev/null)
+    [ -z "$_gw" ] && _gw=$(uci -q get network."$w".gateway)
     _mp=$(uci -q get network."$w".multipath)
     _link=false; _speed=""
     if [ -n "$_dev" ]; then
@@ -65,14 +68,36 @@ status_json() {
       printf '%s' "$_et" | grep -q "Link detected: yes" && _link=true
       _speed=$(printf '%s' "$_et" | sed -n 's/.*Speed: \([0-9]*\)Mb\/s/\1/p' | head -1)
     fi
-    _net=false; _lat=""
+
+    # bandwidth: compare with previous sample
+    _rxr=0; _txr=0; _rxb=0; _txb=0
+    if [ -n "$_dev" ] && [ -f "/sys/class/net/$_dev/statistics/rx_bytes" ]; then
+      _rxb=$(cat /sys/class/net/"$_dev"/statistics/rx_bytes 2>/dev/null)
+      _txb=$(cat /sys/class/net/"$_dev"/statistics/tx_bytes 2>/dev/null)
+      _now=$(date +%s)
+      _f="/tmp/omr-bw-$_dev"
+      if [ -f "$_f" ]; then
+        read _prx _ptx _pt < "$_f"
+        _dt=$((_now - _pt))
+        if [ "$_dt" -gt 0 ] 2>/dev/null; then
+          _rxr=$(( (_rxb - _prx) * 8 / _dt ))
+          _txr=$(( (_txb - _ptx) * 8 / _dt ))
+          [ "$_rxr" -lt 0 ] && _rxr=0
+          [ "$_txr" -lt 0 ] && _txr=0
+        fi
+      fi
+      echo "$_rxb $_txb $_now" > "$_f"
+    fi
+
+    _net=false; _lat=""; _gwlat=""
     if [ "$_up" = "true" ] && [ -n "$_dev" ] && [ "$_link" = "true" ]; then
       _lat=$(ping_ms 1.1.1.1 "$_dev")
       [ -n "$_lat" ] && _net=true
+      [ -n "$_gw" ] && _gwlat=$(ping_ms "$_gw" "$_dev")
     fi
     [ -z "$_up" ] && _up=false
     [ -n "$_wj" ] && _wj="$_wj,"
-    _wj="$_wj{\"name\":\"$w\",\"up\":$_up,\"dev\":\"$_dev\",\"ip\":\"$_ip\",\"proto\":\"$_proto\",\"multipath\":\"$_mp\",\"link\":$_link,\"speed\":\"$_speed\",\"net\":$_net,\"lat\":\"$_lat\"}"
+    _wj="$_wj{\"name\":\"$w\",\"up\":$_up,\"dev\":\"$_dev\",\"ip\":\"$_ip\",\"proto\":\"$_proto\",\"gateway\":\"$_gw\",\"multipath\":\"$_mp\",\"link\":$_link,\"speed\":\"$_speed\",\"net\":$_net,\"lat\":\"$_lat\",\"gw_lat\":\"$_gwlat\",\"rx_bps\":$_rxr,\"tx_bps\":$_txr,\"rx_bytes\":$_rxb,\"tx_bytes\":$_txb}"
   done
 
   _tunup=false
@@ -85,6 +110,10 @@ status_json() {
   _pen=false; /etc/init.d/shadowsocks-rust enabled 2>/dev/null && _pen=true
   _gtrun=false; pgrep -f glorytun-udp >/dev/null 2>&1 && _gtrun=true
   _host=$(uci -q get system.@system[0].hostname); [ -z "$_host" ] && _host=OpenMPTCProuter
+
+  # total throughput across up WANs
+  _trx=0; _ttx=0
+  # parsed later in UI from wans sum
 
   printf '{'
   printf '"time":%s,' "$(date +%s)"
