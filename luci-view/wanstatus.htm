@@ -196,22 +196,63 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
             <option value="smooth">سلس — ضد الانقطاع (موصى به)</option>
             <option value="speed">أقصى سرعة — توزيع الحمل</option>
             <option value="failover">تحويل احتياطي</option>
+            <option value="custom">مخصص — يدوي</option>
           </select>
-          <div class="oc-help" id="bond-help">السلس: الخطّان معاً + جدولة bpf_red + كشف أعطال سريع.</div>
+          <div class="oc-help" id="bond-help">اختر بروفايلاً لملء الخيارات، ثم عدّلها إن احتجت واضغط تطبيق.</div>
         </div>
-        <div class="oc-field"><label>جدولة MPTCP</label><input id="bond-sched" readonly></div>
-        <div class="oc-field"><label>وضع الدمج</label><input id="bond-master" readonly></div>
-        <div class="oc-field"><label>Keepalive النفق</label><input id="bond-ka" readonly></div>
+        <div class="oc-field">
+          <label>جدولة MPTCP</label>
+          <select id="bond-sched">
+            <option value="bpf_red">bpf_red — سلس / ضد الانقطاع</option>
+            <option value="bpf_rr">bpf_rr — أقصى توزيع</option>
+            <option value="bpf_bkup">bpf_bkup — احتياطي</option>
+            <option value="default">default</option>
+            <option value="redundant">redundant</option>
+            <option value="roundrobin">roundrobin</option>
+            <option value="blest">blest</option>
+          </select>
+          <div class="oc-help" id="bond-sched-help">يُعرض فقط ما يدعمه الكرنل عند التطبيق.</div>
+        </div>
+        <div class="oc-field">
+          <label>وضع الدمج</label>
+          <select id="bond-master">
+            <option value="balancing">balancing — دمج وتوزيع</option>
+            <option value="failover">failover — تحويل عند السقوط</option>
+          </select>
+        </div>
+        <div class="oc-field">
+          <label>Keepalive النفق</label>
+          <select id="bond-ka">
+            <option value="3s">3s — أسرع كشف</option>
+            <option value="5s">5s — موصى به</option>
+            <option value="10s">10s</option>
+            <option value="15s">15s</option>
+            <option value="30s">30s</option>
+          </select>
+        </div>
+        <div class="oc-field">
+          <label>فاصل كشف العطل</label>
+          <select id="bond-fail">
+            <option value="1">1 ثانية</option>
+            <option value="2">2 ثانية</option>
+            <option value="3">3 ثوانٍ</option>
+            <option value="5">5 ثوانٍ</option>
+          </select>
+        </div>
         <div class="oc-actions">
-          <button class="oc-btn" type="button" id="bond-apply">تطبيق بروفايل الدمج</button>
+          <button class="oc-btn" type="button" id="bond-apply">تطبيق إعدادات الدمج</button>
         </div>
       </div>
     </div>
   </div>
   <div class="oc-card">
-    <h3>أدوار الوصلات</h3>
-    <div class="oc-body" style="padding:0">
-      <table class="oc-table"><thead><tr><th>الوصلة</th><th>الجهاز</th><th>Multipath</th><th>Auto</th></tr></thead><tbody id="bond-wans"></tbody></table>
+    <h3>أدوار الوصلات (Multipath)</h3>
+    <div class="oc-body">
+      <div class="oc-meta">غيّر دور كل وصلة في الدمج ثم احفظ.</div>
+      <div id="bond-roles"></div>
+      <div class="oc-actions">
+        <button class="oc-btn" type="button" id="bond-roles-save">حفظ أدوار الوصلات</button>
+      </div>
     </div>
   </div>
 </div>
@@ -414,6 +455,63 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
 
   function loadStatus(){ api('status').then(renderStatus).catch(function(){ $('oc-title').textContent='تعذّر الاتصال'; }); }
 
+  function setSelectValue(id, val){
+    var el=$(id); if(!el || val==null || val==='') return;
+    var found=false;
+    for(var i=0;i<el.options.length;i++){ if(el.options[i].value===String(val)){ found=true; break; } }
+    if(!found){
+      var o=document.createElement('option'); o.value=String(val); o.textContent=String(val); el.appendChild(o);
+    }
+    el.value=String(val);
+  }
+  function fillBondSchedOptions(avail){
+    var el=$('bond-sched'); if(!el) return;
+    var cur=el.value;
+    var list=(avail||'').split(/[,\s]+/).filter(Boolean);
+    var defaults=['bpf_red','bpf_rr','bpf_bkup','default','redundant','roundrobin','blest'];
+    var labels={bpf_red:'bpf_red — سلس',bpf_rr:'bpf_rr — توزيع',bpf_bkup:'bpf_bkup — احتياطي',default:'default',redundant:'redundant',roundrobin:'roundrobin',blest:'blest'};
+    var seen={}, opts=[];
+    function add(v){ if(!v||seen[v]) return; seen[v]=1; opts.push(v); }
+    list.forEach(add); defaults.forEach(add);
+    el.innerHTML='';
+    opts.forEach(function(v){
+      var o=document.createElement('option'); o.value=v; o.textContent=labels[v]||v; el.appendChild(o);
+    });
+    if(cur) setSelectValue('bond-sched', cur);
+  }
+  function fillBondHelp(p){
+    var h=$('bond-help'); if(!h) return;
+    if(p==='smooth') h.textContent='سلس: يملأ bpf_red + balancing + keepalive 5s — يمكنك تعديلها قبل التطبيق.';
+    else if(p==='speed') h.textContent='سرعة: يملأ bpf_rr + balancing + keepalive 10s — يمكنك تعديلها قبل التطبيق.';
+    else if(p==='failover') h.textContent='احتياطي: يملأ bpf_bkup + failover — يمكنك تعديلها قبل التطبيق.';
+    else h.textContent='مخصص: عدّل الخيارات يدوياً ثم طبّق.';
+  }
+  function applyBondPreset(p){
+    if(p==='smooth'){ setSelectValue('bond-sched','bpf_red'); setSelectValue('bond-master','balancing'); setSelectValue('bond-ka','5s'); setSelectValue('bond-fail','2'); }
+    else if(p==='speed'){ setSelectValue('bond-sched','bpf_rr'); setSelectValue('bond-master','balancing'); setSelectValue('bond-ka','10s'); setSelectValue('bond-fail','3'); }
+    else if(p==='failover'){ setSelectValue('bond-sched','bpf_bkup'); setSelectValue('bond-master','failover'); setSelectValue('bond-ka','5s'); setSelectValue('bond-fail','2'); }
+    fillBondHelp(p);
+  }
+  function renderBondRoles(wans){
+    var box=$('bond-roles'); if(!box) return;
+    if(!wans || !wans.length){ box.innerHTML='<div class="oc-meta">لا توجد وصلات</div>'; return; }
+    var html='<table class="oc-table"><thead><tr><th>الوصلة</th><th>الجهاز</th><th>Multipath</th></tr></thead><tbody>';
+    wans.forEach(function(w){
+      html += '<tr><td>'+w.name+'</td><td>'+(w.dev||'—')+'</td><td><select class="bond-mp" data-wan="'+w.name+'">'
+        +'<option value="on">on — يشارك</option>'
+        +'<option value="master">master — أساسي</option>'
+        +'<option value="backup">backup — احتياطي</option>'
+        +'<option value="off">off — بدون دمج</option>'
+        +'</select></td></tr>';
+    });
+    html += '</tbody></table>';
+    box.innerHTML=html;
+    wans.forEach(function(w){
+      var s=box.querySelector('select.bond-mp[data-wan="'+w.name+'"]');
+      if(s && w.multipath) s.value=w.multipath;
+    });
+  }
+
   function loadConfig(){
     api('config').then(function(c){
       if(c.server){
@@ -427,13 +525,16 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         if(c.settings.proxy) $('set-proxy').value=c.settings.proxy;
         if(c.settings.master) $('set-master').value=c.settings.master;
         if(c.settings.bond_profile) $('bond-profile').value=c.settings.bond_profile;
-        $('bond-sched').value=(c.settings.mptcp_live||c.settings.mptcp_scheduler||'—');
-        $('bond-master').value=c.settings.master||'—';
-        $('bond-ka').value=c.settings.keepalive||'—';
+        fillBondSchedOptions(c.settings.mptcp_available||'');
+        setSelectValue('bond-sched', c.settings.mptcp_live||c.settings.mptcp_scheduler||'bpf_red');
+        setSelectValue('bond-master', c.settings.master||'balancing');
+        setSelectValue('bond-ka', c.settings.keepalive||'5s');
+        setSelectValue('bond-fail', c.settings.tracker_fail_interval||'2');
+        fillBondHelp($('bond-profile').value);
       }
       if(c.lan) fillLanForm(c.lan);
       var sel=$('wan-dev'); sel.innerHTML='';
-      var rows='', brows='', wrows='';
+      var rows='', wrows='';
       (c.devices||[]).forEach(function(d){
         if(d.name==='eth0' || d.name==='bonding_masters') return;
         var o=document.createElement('option'); o.value=d.name; o.textContent=d.name+(d.carrier==1?' — كيبل واصل':'');
@@ -443,10 +544,9 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       $('dev-rows').innerHTML=rows||'<tr><td colspan="3">لا توجد أجهزة</td></tr>';
       wanCache=c.wans||[];
       wanCache.forEach(function(w){
-        brows += '<tr><td>'+w.name+'</td><td>'+(w.dev||'')+'</td><td>'+(w.multipath||'')+'</td><td>'+(w.auto||'')+'</td></tr>';
         wrows += '<tr><td>'+w.name+'</td><td>'+(w.dev||'')+'</td><td>'+(w.proto||'')+'</td><td>'+(w.multipath||'')+'</td><td>'+(w.ip||w.username||'—')+'</td></tr>';
       });
-      $('bond-wans').innerHTML=brows||'<tr><td colspan="4">—</td></tr>';
+      renderBondRoles(wanCache);
       $('wan-rows').innerHTML=wrows||'<tr><td colspan="5">—</td></tr>';
       if(wanCache[0]){ $('wan-name').value=wanCache[0].name; fillWanForm(wanCache[0].name); }
     }).catch(function(){ toast('تعذّر قراءة الإعدادات'); });
@@ -569,18 +669,43 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   };
 
   $('bond-profile').onchange=function(){
-    var p=$('bond-profile').value, h=$('bond-help');
-    if(p==='smooth') h.textContent='سلس: الخطّان معاً + bpf_red + كشف أعطال سريع — أفضل ضد الانقطاع.';
-    else if(p==='speed') h.textContent='أقصى سرعة: توزيع Round-Robin. تجميع أقوى، حماية أقل.';
-    else h.textContent='تحويل احتياطي: أساسي + احتياطي بدون دمج سرعة.';
+    applyBondPreset($('bond-profile').value);
+  };
+  $('bond-sched').onchange=$('bond-master').onchange=$('bond-ka').onchange=$('bond-fail').onchange=function(){
+    $('bond-profile').value='custom';
+    fillBondHelp('custom');
   };
   $('bond-apply').onclick=function(){
-    if(busy) return; busy=true; toast('تطبيق بروفايل الدمج…');
-    api('setbond', '&profile='+encodeURIComponent($('bond-profile').value), true).then(function(d){
+    if(busy) return; busy=true; toast('تطبيق إعدادات الدمج…');
+    var extra='&profile='+encodeURIComponent($('bond-profile').value)
+      +'&scheduler='+encodeURIComponent($('bond-sched').value)
+      +'&master='+encodeURIComponent($('bond-master').value)
+      +'&keepalive='+encodeURIComponent($('bond-ka').value)
+      +'&fail_interval='+encodeURIComponent($('bond-fail').value);
+    api('setbond', extra, true).then(function(d){
       if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
-      toast('تم: '+d.profile+' / '+d.scheduler);
+      toast('تم: '+d.scheduler+' / '+d.master+' / '+d.keepalive);
       setTimeout(function(){ busy=false; loadConfig(); }, 3500);
     }).catch(function(){ toast('فشل'); busy=false; });
+  };
+  $('bond-roles-save').onclick=function(){
+    if(busy) return; busy=true; toast('حفظ أدوار الوصلات…');
+    var sels=document.querySelectorAll('select.bond-mp');
+    var chain=Promise.resolve();
+    sels.forEach(function(s){
+      var name=s.getAttribute('data-wan');
+      var w=wanCache.filter(function(x){return x.name===name;})[0];
+      var extra='&i='+encodeURIComponent(name)
+        +'&dev='+encodeURIComponent((w&&w.dev)||'')
+        +'&proto='+encodeURIComponent((w&&w.proto)||'dhcp')
+        +'&multipath='+encodeURIComponent(s.value)
+        +'&enable=1';
+      chain=chain.then(function(){ return api('setwan', extra, true); });
+    });
+    chain.then(function(){
+      toast('تم حفظ الأدوار');
+      setTimeout(function(){ busy=false; loadConfig(); }, 3000);
+    }).catch(function(){ toast('فشل حفظ الأدوار'); busy=false; });
   };
 
   $('set-save').onclick=function(){

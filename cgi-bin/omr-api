@@ -205,29 +205,27 @@ set_bond() {
   KA=$(qget keepalive)
   FAILI=$(qget fail_interval)
 
+  # apply profile defaults first, then honor explicit UI overrides
   case "$PROF" in
     smooth)
-      # Anti-drop: both links on + redundant scheduler + fast detection
       MASTER=balancing; SCHED=bpf_red; KA=5s; FAILI=2
       uci set network.wan1.multipath='on'
       uci set network.wan2.multipath='on'
-  uci set network.wan2.auto='1'
-  uci -q delete network.wan2.disabled || true
-  uci set openmptcprouter.wan1.multipath='on'
+      uci set network.wan2.auto='1'
+      uci -q delete network.wan2.disabled || true
+      uci set openmptcprouter.wan1.multipath='on'
       uci set openmptcprouter.wan2.multipath='on'
       ;;
     speed)
-      # Max aggregate throughput
       MASTER=balancing; SCHED=bpf_rr; KA=10s; FAILI=3
       uci set network.wan1.multipath='on'
       uci set network.wan2.multipath='on'
-  uci set network.wan2.auto='1'
-  uci -q delete network.wan2.disabled || true
-  uci set openmptcprouter.wan1.multipath='on'
+      uci set network.wan2.auto='1'
+      uci -q delete network.wan2.disabled || true
+      uci set openmptcprouter.wan1.multipath='on'
       uci set openmptcprouter.wan2.multipath='on'
       ;;
     failover)
-      # Primary + backup (less bonding, cleaner failover)
       MASTER=failover; SCHED=bpf_bkup; KA=5s; FAILI=2
       uci set network.wan1.multipath='master'
       uci set network.wan2.multipath='backup'
@@ -241,15 +239,34 @@ set_bond() {
       [ -z "$KA" ] && KA=$(uci -q get glorytun-udp.vpn.keepalive)
       [ -z "$FAILI" ] && FAILI=$(uci -q get omr-tracker.defaults.failure_interval)
       ;;
-    *) printf '{"ok":false,"error":"unknown profile"}'; return ;;
+    *) err_json "unknown profile"; return ;;
   esac
 
-  # validate scheduler against kernel
+  # UI overrides (editable fields)
+  _os=$(qget scheduler); [ -n "$_os" ] && SCHED="$_os"
+  _om=$(qget master); [ -n "$_om" ] && MASTER="$_om"
+  _ok=$(qget keepalive); [ -n "$_ok" ] && KA="$_ok"
+  _of=$(qget fail_interval); [ -n "$_of" ] && FAILI="$_of"
+  [ -z "$SCHED" ] && SCHED=default
+  [ -z "$MASTER" ] && MASTER=balancing
+  [ -z "$KA" ] && KA=5s
+  [ -z "$FAILI" ] && FAILI=2
+
+  # validate scheduler against kernel (fallback without wiping override intent)
   _ok=0
-  for s in $(sysctl -n net.mptcp.available_schedulers 2>/dev/null); do
+  _avail=$(sysctl -n net.mptcp.available_schedulers 2>/dev/null)
+  for s in $_avail; do
     [ "$s" = "$SCHED" ] && _ok=1
   done
-  [ "$_ok" = "0" ] && SCHED=default
+  if [ "$_ok" = "0" ]; then
+    case "$SCHED" in
+      bpf_red|redundant) for s in $_avail; do case "$s" in bpf_red|redundant) SCHED=$s; _ok=1; break ;; esac; done ;;
+      bpf_rr|roundrobin) for s in $_avail; do case "$s" in bpf_rr|roundrobin) SCHED=$s; _ok=1; break ;; esac; done ;;
+      bpf_bkup|backup) for s in $_avail; do case "$s" in bpf_bkup|backup) SCHED=$s; _ok=1; break ;; esac; done ;;
+    esac
+  fi
+  [ "$_ok" = "0" ] && SCHED=$(printf '%s' "$_avail" | awk '{print $1}')
+  [ -z "$SCHED" ] && SCHED=default
 
   uci set openmptcprouter.settings.bond_profile="$PROF"
   uci set openmptcprouter.settings.master="$MASTER"
@@ -274,11 +291,14 @@ set_bond() {
       || echo "net.mptcp.scheduler=$SCHED" >> "$CONF"
   fi
 
-  uci commit
+  uci commit openmptcprouter
+  uci commit network
+  uci commit glorytun-udp
+  uci commit omr-tracker 2>/dev/null || uci commit
   /etc/init.d/omr-tracker restart >/dev/null 2>&1 || true
   /etc/init.d/glorytun-udp restart >/dev/null 2>&1 || true
 
-  ok_json setbond ',"profile":"'"$PROF"'","scheduler":"'"$SCHED"'","master":"'"$MASTER"'","keepalive":"'"$KA"'"'
+  ok_json setbond ",\"profile\":\"$PROF\",\"scheduler\":\"$SCHED\",\"master\":\"$MASTER\",\"keepalive\":\"$KA\",\"fail_interval\":\"$FAILI\""
 }
 
 # ---------- set server + auto-fetch keys ----------
@@ -430,13 +450,16 @@ do_update() {
 # ---------- set WAN / broadband ----------
 set_wan() {
   DEV=$(qget dev)
-  PROTO=$(qget proto); [ -z "$PROTO" ] && PROTO=dhcp
+  PROTO=$(qget proto)
   MP=$(qget multipath); [ -z "$MP" ] && MP=on
   EN=$(qget enable); [ -z "$EN" ] && EN=1
   IP=$(qget ip); MASK=$(qget netmask); GW=$(qget gateway); DNS=$(qget dns)
   PPUSER=$(qget username); PPPASS=$(qget password)
-  if [ -z "$I" ]; then printf '{"ok":false,"error":"interface required (wan1/wan2)"}'; return; fi
-  if [ -z "$DEV" ]; then printf '{"ok":false,"error":"device required"}'; return; fi
+  if [ -z "$I" ]; then err_json "interface required (wan1/wan2)"; return; fi
+  [ -z "$DEV" ] && DEV=$(uci -q get network."$I".device)
+  if [ -z "$DEV" ]; then err_json "device required"; return; fi
+  [ -z "$PROTO" ] && PROTO=$(uci -q get network."$I".proto)
+  [ -z "$PROTO" ] && PROTO=dhcp
 
   N=$(printf '%s' "$I" | sed 's/wan//')
   MET=$((4 + N))
