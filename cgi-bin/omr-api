@@ -436,6 +436,36 @@ config_json() {
   _avail=$(sysctl -n net.mptcp.available_schedulers 2>/dev/null | tr ' ' ',')
   _ka=$(uci -q get glorytun-udp.vpn.keepalive)
   _ft=$(uci -q get omr-tracker.defaults.failure_interval)
+  _cong=$(uci -q get network.globals.congestion); [ -z "$_cong" ] && _cong=bbr
+  _pm=$(uci -q get network.globals.mptcp_path_manager); [ -z "$_pm" ] && _pm=fullmesh
+  _subf=$(uci -q get network.globals.mptcp_subflows); [ -z "$_subf" ] && _subf=8
+  _force=$(uci -q get network.globals.mptcp_force_multipath); [ -z "$_force" ] && _force=1
+  _csum=$(uci -q get network.globals.mptcp_checksum); [ -z "$_csum" ] && _csum=0
+  _nodelay=$(uci -q get openmptcprouter.settings.enable_nodelay); [ -z "$_nodelay" ] && _nodelay=1
+  _gov=$(uci -q get openmptcprouter.settings.scaling_governor); [ -z "$_gov" ] && _gov=performance
+  _dis6=$(uci -q get openmptcprouter.settings.disable_ipv6); [ -z "$_dis6" ] && _dis6=1
+  _mptcpovpn=$(uci -q get openmptcprouter.settings.mptcpovervpn); [ -z "$_mptcpovpn" ] && _mptcpovpn=none
+
+  _gt_en=$(uci -q get glorytun-udp.vpn.enable); [ -z "$_gt_en" ] && _gt_en=0
+  _gt_host=$(uci -q get glorytun-udp.vpn.host)
+  _gt_port=$(uci -q get glorytun-udp.vpn.port); [ -z "$_gt_port" ] && _gt_port=65001
+  _gt_dev=$(uci -q get glorytun-udp.vpn.dev); [ -z "$_gt_dev" ] && _gt_dev=tun0
+  _gt_lip=$(uci -q get glorytun-udp.vpn.localip); [ -z "$_gt_lip" ] && _gt_lip=10.255.254.2
+  _gt_rip=$(uci -q get glorytun-udp.vpn.remoteip); [ -z "$_gt_rip" ] && _gt_rip=10.255.254.1
+  _gt_cha=$(uci -q get glorytun-udp.vpn.chacha20); [ -z "$_gt_cha" ] && _gt_cha=$(uci -q get glorytun-udp.vpn.chacha)
+  [ -z "$_gt_cha" ] && _gt_cha=1
+  _gt_key=$(uci -q get glorytun-udp.vpn.key)
+  _gt_key_set=false; [ -n "$_gt_key" ] && _gt_key_set=true
+
+  _ss_dis=$(uci -q get shadowsocks-rust.sss0.disabled); [ -z "$_ss_dis" ] && _ss_dis=0
+  _ss_host=$(uci -q get shadowsocks-rust.sss0.server)
+  _ss_port=$(uci -q get shadowsocks-rust.sss0.server_port); [ -z "$_ss_port" ] && _ss_port=65280
+  _ss_method=$(uci -q get shadowsocks-rust.sss0.method)
+  _ss_pass=$(uci -q get shadowsocks-rust.sss0.password)
+  _ss_key_set=false; [ -n "$_ss_pass" ] && _ss_key_set=true
+  _ss_rules_dis=$(uci -q get shadowsocks-rust.ss_rules.disabled); [ -z "$_ss_rules_dis" ] && _ss_rules_dis=0
+  _ss_redir=$(uci -q get shadowsocks-rust.ss_rules.redir_tcp); [ -z "$_ss_redir" ] && _ss_redir=all
+
   _lan_ip=$(uci -q get network.lan.ipaddr)
   _lan_mask=$(uci -q get network.lan.netmask); [ -z "$_lan_mask" ] && _lan_mask=255.255.255.0
   _lan_proto=$(uci -q get network.lan.proto); [ -z "$_lan_proto" ] && _lan_proto=static
@@ -478,8 +508,13 @@ config_json() {
   printf '"ok":true,'
   printf '"server":{"ip":"%s","username":"%s","port":"%s","token_set":%s},' \
     "$_vip" "$_vuser" "$_vport" "$([ -n "$_vtok" ] && echo true || echo false)"
-  printf '"settings":{"vpn":"%s","proxy":"%s","master":"%s","lan_ip":"%s","lan_mask":"%s","bond_profile":"%s","mptcp_scheduler":"%s","mptcp_live":"%s","mptcp_available":"%s","keepalive":"%s","tracker_fail_interval":"%s"},' \
-    "$_vpn" "$_proxy" "$_master" "$_lan_ip" "$_lan_mask" "$_profile" "$_sched" "$_sched_live" "$_avail" "$_ka" "$_ft"
+  printf '"settings":{"vpn":"%s","proxy":"%s","master":"%s","lan_ip":"%s","lan_mask":"%s","bond_profile":"%s","mptcp_scheduler":"%s","mptcp_live":"%s","mptcp_available":"%s","keepalive":"%s","tracker_fail_interval":"%s","congestion":"%s","path_manager":"%s","subflows":"%s","force_multipath":"%s","checksum":"%s","nodelay":"%s","governor":"%s","disable_ipv6":"%s","mptcpovervpn":"%s"},' \
+    "$_vpn" "$_proxy" "$_master" "$_lan_ip" "$_lan_mask" "$_profile" "$_sched" "$_sched_live" "$_avail" "$_ka" "$_ft" \
+    "$_cong" "$_pm" "$_subf" "$_force" "$_csum" "$_nodelay" "$_gov" "$_dis6" "$_mptcpovpn"
+  printf '"vpn":{"enable":"%s","host":"%s","port":"%s","dev":"%s","localip":"%s","remoteip":"%s","keepalive":"%s","chacha20":"%s","key_set":%s},' \
+    "$_gt_en" "$_gt_host" "$_gt_port" "$_gt_dev" "$_gt_lip" "$_gt_rip" "$_ka" "$_gt_cha" "$_gt_key_set"
+  printf '"proxy_cfg":{"disabled":"%s","server":"%s","port":"%s","method":"%s","key_set":%s,"rules_disabled":"%s","redir_tcp":"%s"},' \
+    "$_ss_dis" "$_ss_host" "$_ss_port" "$_ss_method" "$_ss_key_set" "$_ss_rules_dis" "$_ss_redir"
   printf '"lan":{"proto":"%s","ip":"%s","netmask":"%s","gateway":"%s","device":"%s","dhcp_server":%s,"dhcp_start":"%s","dhcp_limit":"%s","dhcp_leasetime":"%s"},' \
     "$_lan_proto" "$_lan_ip" "$_lan_mask" "$_lan_gw" "$_lan_dev" "$_lan_dhcp_server" "$_dhcp_start" "$_dhcp_limit" "$_dhcp_leasetime"
   printf '"devices":[%s],' "$_devs"
@@ -499,29 +534,36 @@ set_bond() {
   case "$PROF" in
     smooth)
       MASTER=balancing; SCHED=bpf_red; KA=5s; FAILI=2
-      uci set network.wan1.multipath='on'
-      uci set network.wan2.multipath='on'
-      uci set network.wan2.auto='1'
-      uci -q delete network.wan2.disabled || true
-      uci set openmptcprouter.wan1.multipath='on'
-      uci set openmptcprouter.wan2.multipath='on'
+      for _bw in $(list_wans); do
+        uci set network."$_bw".multipath='on'
+        uci set network."$_bw".auto='1'
+        uci -q delete network."$_bw".disabled || true
+        uci set openmptcprouter."$_bw".multipath='on'
+      done
       ;;
     speed)
-      MASTER=balancing; SCHED=bpf_rr; KA=10s; FAILI=3
-      uci set network.wan1.multipath='on'
-      uci set network.wan2.multipath='on'
-      uci set network.wan2.auto='1'
-      uci -q delete network.wan2.disabled || true
-      uci set openmptcprouter.wan1.multipath='on'
-      uci set openmptcprouter.wan2.multipath='on'
+      MASTER=balancing; SCHED=bpf_rr; KA=5s; FAILI=2
+      for _bw in $(list_wans); do
+        uci set network."$_bw".multipath='on'
+        uci set network."$_bw".auto='1'
+        uci -q delete network."$_bw".disabled || true
+        uci set openmptcprouter."$_bw".multipath='on'
+      done
       ;;
     failover)
       MASTER=failover; SCHED=bpf_bkup; KA=5s; FAILI=2
-      uci set network.wan1.multipath='master'
-      uci set network.wan2.multipath='backup'
-      uci set network.wan2.auto='1'
-      uci set openmptcprouter.wan1.multipath='master'
-      uci set openmptcprouter.wan2.multipath='backup'
+      _bi=0
+      for _bw in $(list_wans); do
+        _bi=$((_bi+1))
+        if [ "$_bi" = "1" ]; then
+          uci set network."$_bw".multipath='master'
+          uci set openmptcprouter."$_bw".multipath='master'
+        else
+          uci set network."$_bw".multipath='backup'
+          uci set openmptcprouter."$_bw".multipath='backup'
+        fi
+        uci set network."$_bw".auto='1'
+      done
       ;;
     custom)
       [ -z "$SCHED" ] && SCHED=$(uci -q get network.globals.mptcp_scheduler)
@@ -561,16 +603,28 @@ set_bond() {
   uci set openmptcprouter.settings.bond_profile="$PROF"
   uci set openmptcprouter.settings.master="$MASTER"
   uci set openmptcprouter.settings.mptcpovervpn='none'
+  uci set openmptcprouter.settings.vpn='glorytun_udp'
+  uci set openmptcprouter.settings.proxy='shadowsocks-rust'
   uci set network.globals.mptcp_scheduler="$SCHED"
   uci set network.globals.mptcp_path_manager='fullmesh'
   uci set network.globals.mptcp_force_multipath='1'
+  uci set network.globals.multipath='enable'
+  uci set network.globals.congestion='bbr'
+  uci set network.globals.mptcp_checksum='0'
   uci set glorytun-udp.vpn.keepalive="$KA"
   uci set omr-tracker.defaults.failure_interval="$FAILI"
   uci set omr-tracker.defaults.timeout='1'
   uci set omr-tracker.defaults.interval='1'
   uci set omr-tracker.defaults.tries='2'
-  uci set network.wan1.peerdns='1'
-  uci set network.wan2.peerdns='1'
+  for _bw in $(list_wans); do
+    uci set network."$_bw".peerdns='0'
+    uci set network."$_bw".defaultroute='0'
+  done
+
+  CONG=$(qget congestion)
+  SUBF=$(qget subflows)
+  [ -n "$CONG" ] && uci set network.globals.congestion="$CONG"
+  [ -n "$SUBF" ] && uci set network.globals.mptcp_subflows="$SUBF"
 
   sysctl -w net.mptcp.scheduler="$SCHED" >/dev/null 2>&1 || true
   sysctl -w net.mptcp.stale_loss_cnt=2 >/dev/null 2>&1 || true
@@ -956,35 +1010,225 @@ set_lan() {
   ok_json setlan ',"proto":"'"$PROTO"'","ip":"'"$IP"'","lan_changed":1'
 }
 
-# ---------- settings ----------
+# ---------- VPN (Glorytun UDP — VPS compatible) ----------
+set_vpn() {
+  EN=$(qget enable); [ -z "$EN" ] && EN=1
+  PORT=$(qget port); [ -z "$PORT" ] && PORT=$(uci -q get glorytun-udp.vpn.port); [ -z "$PORT" ] && PORT=65001
+  KA=$(qget keepalive); [ -z "$KA" ] && KA=$(uci -q get glorytun-udp.vpn.keepalive); [ -z "$KA" ] && KA=5s
+  CHA=$(qget chacha20); [ -z "$CHA" ] && CHA=1
+  LIP=$(qget localip); [ -z "$LIP" ] && LIP=$(uci -q get glorytun-udp.vpn.localip); [ -z "$LIP" ] && LIP=10.255.254.2
+  RIP=$(qget remoteip); [ -z "$RIP" ] && RIP=$(uci -q get glorytun-udp.vpn.remoteip); [ -z "$RIP" ] && RIP=10.255.254.1
+  HOST=$(uci -q get openmptcprouter.vps.ip | awk '{print $1}')
+  [ -z "$HOST" ] && HOST=$(uci -q get glorytun-udp.vpn.host)
+  [ -z "$HOST" ] && { err_json "اربط السيرفر أولاً"; return; }
+
+  uci set openmptcprouter.settings.vpn='glorytun_udp'
+  uci set openmptcprouter.settings.mptcpovervpn='none'
+  uci set glorytun-udp.vpn.enable="$EN"
+  uci set glorytun-udp.vpn.host="$HOST"
+  uci set glorytun-udp.vpn.port="$PORT"
+  uci set glorytun-udp.vpn.dev='tun0'
+  uci set glorytun-udp.vpn.keepalive="$KA"
+  uci set glorytun-udp.vpn.chacha20="$CHA"
+  uci set glorytun-udp.vpn.chacha="$CHA"
+  uci set glorytun-udp.vpn.localip="$LIP"
+  uci set glorytun-udp.vpn.remoteip="$RIP"
+  uci set glorytun-udp.vpn.mode='to'
+
+  uci set network.omrvpn=interface
+  uci set network.omrvpn.proto='static'
+  uci set network.omrvpn.device='tun0'
+  uci set network.omrvpn.ipaddr="$LIP"
+  uci set network.omrvpn.netmask='255.255.255.252'
+  uci set network.omrvpn.gateway="$RIP"
+  uci set network.omrvpn.multipath='off'
+  uci set network.omrvpn.metric='1500'
+
+  uci commit glorytun-udp
+  uci commit network
+  uci commit openmptcprouter
+  if [ "$EN" = "0" ]; then
+    /etc/init.d/glorytun-udp stop >/dev/null 2>&1 || true
+    ifdown omrvpn >/dev/null 2>&1 || true
+  else
+    /etc/init.d/glorytun-udp restart >/dev/null 2>&1 || true
+    sleep 1
+    ip link set tun0 up 2>/dev/null || true
+    ip addr flush dev tun0 2>/dev/null || true
+    ip addr add "$LIP/30" peer "$RIP" dev tun0 2>/dev/null || ip addr add "$LIP/30" dev tun0 2>/dev/null || true
+    ifup omrvpn >/dev/null 2>&1 || true
+  fi
+  ok_json setvpn ",\"enable\":\"$EN\",\"host\":\"$HOST\",\"port\":\"$PORT\",\"keepalive\":\"$KA\""
+}
+
+# ---------- Proxy (Shadowsocks-Rust — VPS compatible) ----------
+set_proxy_cfg() {
+  EN=$(qget enable); [ -z "$EN" ] && EN=1
+  PORT=$(qget port); [ -z "$PORT" ] && PORT=$(uci -q get shadowsocks-rust.sss0.server_port); [ -z "$PORT" ] && PORT=65280
+  METHOD=$(qget method); [ -z "$METHOD" ] && METHOD=$(uci -q get shadowsocks-rust.sss0.method)
+  [ -z "$METHOD" ] && METHOD='2022-blake3-aes-256-gcm'
+  PASS=$(qget password)
+  HOST=$(uci -q get openmptcprouter.vps.ip | awk '{print $1}')
+  [ -z "$HOST" ] && HOST=$(uci -q get shadowsocks-rust.sss0.server)
+  [ -z "$HOST" ] && { err_json "اربط السيرفر أولاً"; return; }
+
+  uci set openmptcprouter.settings.proxy='shadowsocks-rust'
+  uci set shadowsocks-rust.sss0=server
+  uci set shadowsocks-rust.sss0.server="$HOST"
+  uci set shadowsocks-rust.sss0.server_port="$PORT"
+  uci set shadowsocks-rust.sss0.method="$METHOD"
+  if [ -n "$PASS" ]; then
+    uci set shadowsocks-rust.sss0.password="$PASS"
+  fi
+  if [ "$EN" = "0" ]; then
+    uci set shadowsocks-rust.sss0.disabled='1'
+    uci set shadowsocks-rust.ss_rules.disabled='1'
+  else
+    uci set shadowsocks-rust.sss0.disabled='0'
+    uci set shadowsocks-rust.ss_rules.disabled='0'
+    uci set shadowsocks-rust.ss_rules.redir_tcp='all'
+    uci set shadowsocks-rust.ss_rules.src_default='forward'
+    uci set shadowsocks-rust.ss_rules.dst_default='forward'
+    uci set shadowsocks-rust.ss_rules.local_default='forward'
+    uci set shadowsocks-rust.ss_rules.server='sss0'
+  fi
+
+  uci commit shadowsocks-rust
+  uci commit openmptcprouter
+  /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1 || true
+  ok_json setproxy ",\"enable\":\"$EN\",\"server\":\"$HOST\",\"port\":\"$PORT\",\"method\":\"$METHOD\""
+}
+
+# ---------- Max efficiency stack aligned with VPS ----------
+optimize_stack() {
+  MODE=$(qget mode); [ -z "$MODE" ] && MODE=smooth
+  HOST=$(uci -q get openmptcprouter.vps.ip | awk '{print $1}')
+  [ -z "$HOST" ] && HOST=$(uci -q get glorytun-udp.vpn.host)
+
+  case "$MODE" in
+    speed) SCHED=bpf_rr; KA=5s; FAILI=2; MASTER=balancing ;;
+    failover) SCHED=bpf_bkup; KA=5s; FAILI=2; MASTER=failover ;;
+    *) MODE=smooth; SCHED=bpf_red; KA=5s; FAILI=2; MASTER=balancing ;;
+  esac
+
+  # validate scheduler
+  _avail=$(sysctl -n net.mptcp.available_schedulers 2>/dev/null)
+  _ok=0
+  for s in $_avail; do [ "$s" = "$SCHED" ] && _ok=1; done
+  [ "$_ok" = "0" ] && SCHED=$(printf '%s' "$_avail" | awk '{print $1}')
+  [ -z "$SCHED" ] && SCHED=default
+
+  uci set openmptcprouter.settings.vpn='glorytun_udp'
+  uci set openmptcprouter.settings.proxy='shadowsocks-rust'
+  uci set openmptcprouter.settings.master="$MASTER"
+  uci set openmptcprouter.settings.mptcpovervpn='none'
+  uci set openmptcprouter.settings.bond_profile="$MODE"
+  uci set openmptcprouter.settings.enable_nodelay='1'
+  uci set openmptcprouter.settings.disable_ipv6='1'
+  uci set openmptcprouter.settings.scaling_governor='performance'
+  uci set openmptcprouter.settings.disableserverping='0'
+
+  uci set network.globals.multipath='enable'
+  uci set network.globals.mptcp_scheduler="$SCHED"
+  uci set network.globals.mptcp_path_manager='fullmesh'
+  uci set network.globals.mptcp_force_multipath='1'
+  uci set network.globals.congestion='bbr'
+  uci set network.globals.mptcp_checksum='0'
+  uci set network.globals.mptcp_subflows='8'
+  uci set network.globals.mptcp_add_addr_accepted='8'
+  uci set network.globals.mptcp_syn_retries='4'
+
+  _bi=0
+  for _bw in $(list_wans); do
+    _bi=$((_bi+1))
+    if [ "$MODE" = "failover" ]; then
+      if [ "$_bi" = "1" ]; then
+        uci set network."$_bw".multipath='master'
+        uci set openmptcprouter."$_bw".multipath='master'
+      else
+        uci set network."$_bw".multipath='backup'
+        uci set openmptcprouter."$_bw".multipath='backup'
+      fi
+    else
+      uci set network."$_bw".multipath='on'
+      uci set openmptcprouter."$_bw".multipath='on'
+    fi
+    uci set network."$_bw".auto='1'
+    uci set network."$_bw".defaultroute='0'
+    uci set network."$_bw".peerdns='0'
+    uci set network."$_bw".delegate='0'
+    uci -q delete network."$_bw".disabled || true
+  done
+
+  if [ -n "$HOST" ]; then
+    uci set glorytun-udp.vpn.enable='1'
+    uci set glorytun-udp.vpn.host="$HOST"
+    uci set glorytun-udp.vpn.port='65001'
+    uci set glorytun-udp.vpn.dev='tun0'
+    uci set glorytun-udp.vpn.keepalive="$KA"
+    uci set glorytun-udp.vpn.chacha20='1'
+    uci set glorytun-udp.vpn.localip='10.255.254.2'
+    uci set glorytun-udp.vpn.remoteip='10.255.254.1'
+    uci set network.omrvpn=interface
+    uci set network.omrvpn.proto='static'
+    uci set network.omrvpn.device='tun0'
+    uci set network.omrvpn.ipaddr='10.255.254.2'
+    uci set network.omrvpn.netmask='255.255.255.252'
+    uci set network.omrvpn.gateway='10.255.254.1'
+    uci set network.omrvpn.multipath='off'
+    uci set network.omrvpn.metric='1500'
+    uci set shadowsocks-rust.sss0.server="$HOST"
+    uci set shadowsocks-rust.sss0.server_port='65280'
+    uci set shadowsocks-rust.sss0.disabled='0'
+    uci set shadowsocks-rust.ss_rules.disabled='0'
+    uci set shadowsocks-rust.ss_rules.redir_tcp='all'
+    uci set shadowsocks-rust.ss_rules.src_default='forward'
+    uci set shadowsocks-rust.ss_rules.dst_default='forward'
+    uci set shadowsocks-rust.ss_rules.local_default='forward'
+    uci set shadowsocks-rust.ss_rules.server='sss0'
+  fi
+
+  uci set omr-tracker.defaults.enabled='1'
+  uci set omr-tracker.defaults.failure_interval="$FAILI"
+  uci set omr-tracker.defaults.timeout='1'
+  uci set omr-tracker.defaults.interval='1'
+  uci set omr-tracker.defaults.tries='2'
+  uci set omr-tracker.proxy.enabled='1'
+  uci set omr-tracker.server.enabled='1'
+
+  sysctl -w net.mptcp.scheduler="$SCHED" >/dev/null 2>&1 || true
+  sysctl -w net.mptcp.enabled=1 >/dev/null 2>&1 || true
+  echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null 2>&1 || true
+
+  uci commit openmptcprouter
+  uci commit network
+  uci commit glorytun-udp
+  uci commit shadowsocks-rust
+  uci commit omr-tracker 2>/dev/null || true
+
+  /etc/init.d/omr-tracker restart >/dev/null 2>&1 || true
+  /etc/init.d/glorytun-udp restart >/dev/null 2>&1 || true
+  sleep 1
+  ifup omrvpn >/dev/null 2>&1 || true
+  /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1 || true
+
+  ok_json optimize ",\"mode\":\"$MODE\",\"scheduler\":\"$SCHED\",\"master\":\"$MASTER\",\"host\":\"$HOST\""
+}
+
+# ---------- settings (compat) ----------
 set_settings() {
   VPN=$(qget vpn)
   PROXY=$(qget proxy)
   MASTER=$(qget master)
-  LANIP=$(qget lan_ip)
   [ -n "$VPN" ] && uci set openmptcprouter.settings.vpn="$VPN"
   [ -n "$PROXY" ] && uci set openmptcprouter.settings.proxy="$PROXY"
   [ -n "$MASTER" ] && uci set openmptcprouter.settings.master="$MASTER"
-  LAN_CHANGED=0
-  if [ -n "$LANIP" ]; then
-    case "$LANIP" in
-      *.*.*.*)
-        uci set network.lan.proto='static'
-        uci set network.lan.ipaddr="$LANIP"
-        LAN_CHANGED=1
-        ;;
-    esac
-  fi
   uci commit openmptcprouter
-  uci commit network
   if [ "$VPN" = "glorytun_udp" ]; then
     uci set glorytun-udp.vpn.enable='1'; uci commit glorytun-udp
     /etc/init.d/glorytun-udp restart >/dev/null 2>&1 || true
   fi
-  if [ "$LAN_CHANGED" = "1" ]; then
-    (sleep 1; /etc/init.d/network restart) >/dev/null 2>&1 &
-  fi
-  ok_json setsettings ',"lan_changed":'"$LAN_CHANGED"
+  ok_json setsettings
 }
 
 case "$A" in
@@ -1028,6 +1272,9 @@ case "$A" in
   addwan)     add_wan_device ;;
   scanwans)   scan_wans_action ;;
   setsettings) set_settings ;;
+  setvpn)     set_vpn ;;
+  setproxy)   set_proxy_cfg ;;
+  optimize)   optimize_stack ;;
   setlan)     set_lan ;;
   setbond)    set_bond ;;
   status|*)   status_json ;;

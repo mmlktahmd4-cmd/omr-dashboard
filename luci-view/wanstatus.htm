@@ -9,10 +9,11 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
 <div class="oc-tabs" id="oc-tabs">
   <button type="button" class="oc-tab active" data-tab="status">الحالة</button>
   <button type="button" class="oc-tab" data-tab="server">السيرفر</button>
-  <button type="button" class="oc-tab" data-tab="wan">الوصلات / برودباند</button>
+  <button type="button" class="oc-tab" data-tab="wan">الوصلات</button>
   <button type="button" class="oc-tab" data-tab="lan">خرج LAN</button>
   <button type="button" class="oc-tab" data-tab="bond">الدمج</button>
-  <button type="button" class="oc-tab" data-tab="settings">إعدادات عامة</button>
+  <button type="button" class="oc-tab" data-tab="tunnel">النفق والبروكسي</button>
+  <button type="button" class="oc-tab" data-tab="perf">الكفاءة</button>
 </div>
 
 <!-- STATUS -->
@@ -207,8 +208,9 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
 <!-- BOND -->
 <div class="oc-panel" id="panel-bond">
   <div class="oc-card">
-    <h3>وضع الدمج (MPTCP / Glorytun)</h3>
+    <h3>وضع الدمج (MPTCP)</h3>
     <div class="oc-body">
+      <div class="oc-meta">الجدولة ومسار MPTCP يجب أن ت توافق مع Glorytun UDP + Shadowsocks على الـ VPS (بدون MPTCP-over-VPN).</div>
       <div class="oc-form">
         <div class="oc-field">
           <label>بروفايل جاهز</label>
@@ -225,13 +227,11 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
           <select id="bond-sched">
             <option value="bpf_red">bpf_red — سلس / ضد الانقطاع</option>
             <option value="bpf_rr">bpf_rr — أقصى توزيع</option>
+            <option value="bpf_minrtt">bpf_minrtt — أقل تأخير</option>
             <option value="bpf_bkup">bpf_bkup — احتياطي</option>
+            <option value="bpf_burst">bpf_burst</option>
             <option value="default">default</option>
-            <option value="redundant">redundant</option>
-            <option value="roundrobin">roundrobin</option>
-            <option value="blest">blest</option>
           </select>
-          <div class="oc-help" id="bond-sched-help">يُعرض فقط ما يدعمه الكرنل عند التطبيق.</div>
         </div>
         <div class="oc-field">
           <label>وضع الدمج</label>
@@ -241,13 +241,28 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
           </select>
         </div>
         <div class="oc-field">
+          <label>ازدحام الشبكة (Congestion)</label>
+          <select id="bond-cong">
+            <option value="bbr">BBR — موصى به مع VPS</option>
+            <option value="cubic">CUBIC</option>
+            <option value="reno">Reno</option>
+          </select>
+        </div>
+        <div class="oc-field">
+          <label>عدد المسارات الفرعية</label>
+          <select id="bond-subf">
+            <option value="4">4</option>
+            <option value="8" selected>8 — موصى به</option>
+            <option value="16">16</option>
+          </select>
+        </div>
+        <div class="oc-field">
           <label>Keepalive النفق</label>
           <select id="bond-ka">
             <option value="3s">3s — أسرع كشف</option>
             <option value="5s">5s — موصى به</option>
             <option value="10s">10s</option>
             <option value="15s">15s</option>
-            <option value="30s">30s</option>
           </select>
         </div>
         <div class="oc-field">
@@ -268,7 +283,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   <div class="oc-card">
     <h3>أدوار الوصلات (Multipath)</h3>
     <div class="oc-body">
-      <div class="oc-meta">غيّر دور كل وصلة في الدمج ثم احفظ.</div>
+      <div class="oc-meta">كل وصلة مشاركة يجب أن تكون on/master/backup — off يخرجها من الدمج.</div>
       <div id="bond-roles"></div>
       <div class="oc-actions">
         <button class="oc-btn" type="button" id="bond-roles-save">حفظ أدوار الوصلات</button>
@@ -277,43 +292,100 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   </div>
 </div>
 
-<!-- SETTINGS -->
-<div class="oc-panel" id="panel-settings">
+<!-- TUNNEL + PROXY -->
+<div class="oc-panel" id="panel-tunnel">
   <div class="oc-card">
-    <h3>إعدادات عامة</h3>
+    <h3>النفق Glorytun UDP (متوافق VPS)</h3>
     <div class="oc-body">
+      <div class="oc-meta">المنفذ القياسي مع سيرفر OpenMPTCProuter: <b>65001</b> · عناوين النفق 10.255.254.2 → 10.255.254.1</div>
+      <div class="oc-form">
+        <div class="oc-field"><label>الحالة</label>
+          <select id="vpn-en"><option value="1">مفعّل</option><option value="0">متوقف</option></select>
+        </div>
+        <div class="oc-field"><label>مضيف VPS</label><input id="vpn-host" readonly><div class="oc-help">يُؤخذ من تبويب السيرفر</div></div>
+        <div class="oc-field"><label>منفذ Glorytun</label><input id="vpn-port" value="65001"></div>
+        <div class="oc-field"><label>Keepalive</label>
+          <select id="vpn-ka">
+            <option value="3s">3s</option>
+            <option value="5s">5s</option>
+            <option value="10s">10s</option>
+          </select>
+        </div>
+        <div class="oc-field"><label>ChaCha20</label>
+          <select id="vpn-cha"><option value="1">مفعّل</option><option value="0">متوقف</option></select>
+        </div>
+        <div class="oc-field"><label>IP المحلي / الند</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input id="vpn-lip" value="10.255.254.2" style="flex:1;min-width:140px">
+            <input id="vpn-rip" value="10.255.254.1" style="flex:1;min-width:140px">
+          </div>
+        </div>
+        <div class="oc-field"><label>مفتاح النفق</label><div class="oc-help" id="vpn-key-hint">—</div></div>
+        <div class="oc-actions">
+          <button class="oc-btn" type="button" id="vpn-save">حفظ النفق</button>
+          <button class="oc-btn ghost" type="button" data-a="vpn" data-l="إعادة النفق">إعادة تشغيل النفق</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="oc-card">
+    <h3>البروكسي Shadowsocks-Rust (متوافق VPS)</h3>
+    <div class="oc-body">
+      <div class="oc-meta">المنفذ القياسي: <b>65280</b> · يجب تفعيل قواعد التحويل (redir all) ليمرّ الترافيك عبر السيرفر.</div>
+      <div class="oc-form">
+        <div class="oc-field"><label>الحالة</label>
+          <select id="px-en"><option value="1">مفعّل</option><option value="0">متوقف</option></select>
+        </div>
+        <div class="oc-field"><label>مضيف VPS</label><input id="px-host" readonly></div>
+        <div class="oc-field"><label>منفذ Shadowsocks</label><input id="px-port" value="65280"></div>
+        <div class="oc-field"><label>التشفير</label>
+          <select id="px-method">
+            <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm</option>
+            <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
+            <option value="aes-256-gcm">aes-256-gcm</option>
+          </select>
+        </div>
+        <div class="oc-field"><label>كلمة مرور البروكسي</label>
+          <input id="px-pass" type="password" placeholder="اتركه فارغاً إن كان محفوظاً" autocomplete="off">
+          <div class="oc-help" id="px-key-hint">—</div>
+        </div>
+        <div class="oc-actions">
+          <button class="oc-btn" type="button" id="px-save">حفظ البروكسي</button>
+          <button class="oc-btn ghost" type="button" data-a="proxy" data-l="إعادة البروكسي">إعادة تشغيل البروكسي</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PERF / EFFICIENCY -->
+<div class="oc-panel" id="panel-perf">
+  <div class="oc-card">
+    <h3>أقصى كفاءة مع سيرفر VPS</h3>
+    <div class="oc-body">
+      <div class="oc-alert ok" style="margin-bottom:12px"><b>موصى به</b>يضبط Glorytun UDP + Shadowsocks-Rust + MPTCP (BBR / fullmesh) + أدوار الوصلات + Tracker بما يتوافق مع سيرفر OpenMPTCProuter.</div>
       <div class="oc-form">
         <div class="oc-field">
-          <label>نوع النفق (VPN)</label>
-          <select id="set-vpn">
-            <option value="glorytun_udp">Glorytun UDP</option>
-            <option value="glorytun">Glorytun TCP</option>
-            <option value="openvpn">OpenVPN</option>
+          <label>وضع التحسين</label>
+          <select id="opt-mode">
+            <option value="smooth">سلس — استقرار أعلى</option>
+            <option value="speed">سرعة — أقصى توزيع</option>
+            <option value="failover">احتياطي — خط أساسي + احتياط</option>
           </select>
         </div>
-        <div class="oc-field">
-          <label>البروكسي</label>
-          <select id="set-proxy">
-            <option value="shadowsocks-rust">Shadowsocks-Rust</option>
-            <option value="shadowsocks">Shadowsocks</option>
-            <option value="v2ray">V2Ray</option>
-            <option value="none">بدون</option>
-          </select>
-        </div>
-        <div class="oc-field">
-          <label>وضع الدمج العام</label>
-          <select id="set-master">
-            <option value="balancing">balancing — توزيع</option>
-            <option value="failover">failover — تحويل</option>
-          </select>
-        </div>
-        <div class="oc-meta">لإعداد عنوان خرج LAN وDHCP استخدم تبويب <b>خرج LAN</b>.</div>
         <div class="oc-actions">
-          <button class="oc-btn" type="button" id="set-save">حفظ الإعدادات</button>
-          <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/wizard")%>">المعالج الكامل</a>
-          <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/settings")%>">إعدادات متقدمة أصلية</a>
-          <a class="oc-btn ghost" href="<%=url("admin/network/network")%>">شبكة LuCI</a>
+          <button class="oc-btn" type="button" id="opt-apply">تطبيق أقصى كفاءة الآن</button>
         </div>
+      </div>
+    </div>
+  </div>
+  <div class="oc-card">
+    <h3>ملخص الإعداد الحالي</h3>
+    <div class="oc-body">
+      <div id="perf-summary" class="oc-meta">—</div>
+      <div class="oc-actions" style="border:0;margin-top:8px;padding-top:0">
+        <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/wizard")%>">المعالج الأصلي</a>
+        <a class="oc-btn ghost" href="<%=url("admin/system/" .. menuentry:lower() .. "/settings")%>">إعدادات متقدمة أصلية</a>
       </div>
     </div>
   </div>
@@ -580,16 +652,46 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
           : 'الصق «OpenMPTCProuter Server key» من تثبيت VPS هنا ككلمة مرور — ليس SSH.';
       }
       if(c.settings){
-        if(c.settings.vpn) $('set-vpn').value=c.settings.vpn;
-        if(c.settings.proxy) $('set-proxy').value=c.settings.proxy;
-        if(c.settings.master) $('set-master').value=c.settings.master;
         if(c.settings.bond_profile) $('bond-profile').value=c.settings.bond_profile;
         fillBondSchedOptions(c.settings.mptcp_available||'');
         setSelectValue('bond-sched', c.settings.mptcp_live||c.settings.mptcp_scheduler||'bpf_red');
         setSelectValue('bond-master', c.settings.master||'balancing');
         setSelectValue('bond-ka', c.settings.keepalive||'5s');
         setSelectValue('bond-fail', c.settings.tracker_fail_interval||'2');
+        setSelectValue('bond-cong', c.settings.congestion||'bbr');
+        setSelectValue('bond-subf', c.settings.subflows||'8');
         fillBondHelp($('bond-profile').value);
+        var sum=$('perf-summary');
+        if(sum){
+          sum.innerHTML =
+            '<div class="oc-row"><span>VPN</span><b>'+(c.settings.vpn||'—')+'</b></div>'
+            +'<div class="oc-row"><span>البروكسي</span><b>'+(c.settings.proxy||'—')+'</b></div>'
+            +'<div class="oc-row"><span>الجدولة</span><b>'+(c.settings.mptcp_live||c.settings.mptcp_scheduler||'—')+'</b></div>'
+            +'<div class="oc-row"><span>الوضع</span><b>'+(c.settings.master||'—')+'</b></div>'
+            +'<div class="oc-row"><span>Congestion</span><b>'+(c.settings.congestion||'—')+'</b></div>'
+            +'<div class="oc-row"><span>Path manager</span><b>'+(c.settings.path_manager||'—')+'</b></div>'
+            +'<div class="oc-row"><span>Subflows</span><b>'+(c.settings.subflows||'—')+'</b></div>'
+            +'<div class="oc-row"><span>Force multipath</span><b>'+(c.settings.force_multipath==='1'?'نعم':'لا')+'</b></div>'
+            +'<div class="oc-row"><span>No-delay / Governor</span><b>'+(c.settings.nodelay==='1'?'on':'off')+' / '+(c.settings.governor||'—')+'</b></div>'
+            +'<div class="oc-row"><span>MPTCP over VPN</span><b>'+(c.settings.mptcpovervpn||'none')+'</b></div>';
+        }
+      }
+      if(c.vpn){
+        $('vpn-en').value = (c.vpn.enable==='0')?'0':'1';
+        $('vpn-host').value=c.vpn.host||'';
+        $('vpn-port').value=c.vpn.port||'65001';
+        setSelectValue('vpn-ka', c.vpn.keepalive||'5s');
+        $('vpn-cha').value = (c.vpn.chacha20==='0')?'0':'1';
+        $('vpn-lip').value=c.vpn.localip||'10.255.254.2';
+        $('vpn-rip').value=c.vpn.remoteip||'10.255.254.1';
+        $('vpn-key-hint').textContent = c.vpn.key_set ? 'المفتاح محفوظ (من ربط السيرفر).' : 'لا يوجد مفتاح — اربط السيرفر أولاً.';
+      }
+      if(c.proxy_cfg){
+        $('px-en').value = (c.proxy_cfg.disabled==='1')?'0':'1';
+        $('px-host').value=c.proxy_cfg.server||'';
+        $('px-port').value=c.proxy_cfg.port||'65280';
+        if(c.proxy_cfg.method) setSelectValue('px-method', c.proxy_cfg.method);
+        $('px-key-hint').textContent = c.proxy_cfg.key_set ? 'كلمة المرور محفوظة — اترك الحقل فارغاً إن لم تتغير.' : 'لا توجد كلمة مرور — اربط السيرفر أو الصق المفتاح.';
       }
       if(c.lan) fillLanForm(c.lan);
       var sel=$('wan-dev'); sel.innerHTML='';
@@ -779,7 +881,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   $('bond-profile').onchange=function(){
     applyBondPreset($('bond-profile').value);
   };
-  $('bond-sched').onchange=$('bond-master').onchange=$('bond-ka').onchange=$('bond-fail').onchange=function(){
+  $('bond-sched').onchange=$('bond-master').onchange=$('bond-ka').onchange=$('bond-fail').onchange=$('bond-cong').onchange=$('bond-subf').onchange=function(){
     $('bond-profile').value='custom';
     fillBondHelp('custom');
   };
@@ -789,7 +891,9 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       +'&scheduler='+encodeURIComponent($('bond-sched').value)
       +'&master='+encodeURIComponent($('bond-master').value)
       +'&keepalive='+encodeURIComponent($('bond-ka').value)
-      +'&fail_interval='+encodeURIComponent($('bond-fail').value);
+      +'&fail_interval='+encodeURIComponent($('bond-fail').value)
+      +'&congestion='+encodeURIComponent($('bond-cong').value)
+      +'&subflows='+encodeURIComponent($('bond-subf').value);
     api('setbond', extra, true).then(function(d){
       if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
       toast('تم: '+d.scheduler+' / '+d.master+' / '+d.keepalive);
@@ -816,15 +920,40 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     }).catch(function(){ toast('فشل حفظ الأدوار'); busy=false; });
   };
 
-  $('set-save').onclick=function(){
-    if(busy) return; busy=true;
-    var extra='&vpn='+encodeURIComponent($('set-vpn').value)
-      +'&proxy='+encodeURIComponent($('set-proxy').value)
-      +'&master='+encodeURIComponent($('set-master').value);
-    api('setsettings', extra, true).then(function(){
-      toast('تم حفظ الإعدادات');
-      setTimeout(function(){ busy=false; loadConfig(); }, 2000);
-    }).catch(function(){ toast('فشل الحفظ'); busy=false; });
+  $('vpn-save').onclick=function(){
+    if(busy) return; busy=true; toast('حفظ النفق…');
+    var extra='&enable='+encodeURIComponent($('vpn-en').value)
+      +'&port='+encodeURIComponent($('vpn-port').value.trim()||'65001')
+      +'&keepalive='+encodeURIComponent($('vpn-ka').value)
+      +'&chacha20='+encodeURIComponent($('vpn-cha').value)
+      +'&localip='+encodeURIComponent($('vpn-lip').value.trim()||'10.255.254.2')
+      +'&remoteip='+encodeURIComponent($('vpn-rip').value.trim()||'10.255.254.1');
+    api('setvpn', extra, true).then(function(d){
+      if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
+      toast('تم حفظ النفق ('+d.host+':'+d.port+')');
+      setTimeout(function(){ busy=false; loadStatus(); loadConfig(); }, 3500);
+    }).catch(function(){ toast('فشل حفظ النفق'); busy=false; });
+  };
+  $('px-save').onclick=function(){
+    if(busy) return; busy=true; toast('حفظ البروكسي…');
+    var extra='&enable='+encodeURIComponent($('px-en').value)
+      +'&port='+encodeURIComponent($('px-port').value.trim()||'65280')
+      +'&method='+encodeURIComponent($('px-method').value)
+      +'&password='+encodeURIComponent($('px-pass').value);
+    api('setproxy', extra, true).then(function(d){
+      if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
+      $('px-pass').value='';
+      toast('تم حفظ البروكسي ('+d.server+':'+d.port+')');
+      setTimeout(function(){ busy=false; loadStatus(); loadConfig(); }, 3500);
+    }).catch(function(){ toast('فشل حفظ البروكسي'); busy=false; });
+  };
+  $('opt-apply').onclick=function(){
+    if(busy) return; busy=true; toast('تطبيق أقصى كفاءة مع VPS…');
+    api('optimize','&mode='+encodeURIComponent($('opt-mode').value),true).then(function(d){
+      if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
+      toast('تم: '+d.mode+' · '+d.scheduler+' · '+d.master);
+      setTimeout(function(){ busy=false; loadStatus(); loadConfig(); }, 4500);
+    }).catch(function(){ toast('فشل التحسين'); busy=false; });
   };
 
   $('lan-save').onclick=function(){
