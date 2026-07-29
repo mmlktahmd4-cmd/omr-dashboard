@@ -10,6 +10,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   <button type="button" class="oc-tab active" data-tab="status">الحالة</button>
   <button type="button" class="oc-tab" data-tab="server">ربط السيرفر</button>
   <button type="button" class="oc-tab" data-tab="wan">إضافة برودباند</button>
+  <button type="button" class="oc-tab" data-tab="bond">الدمج</button>
   <button type="button" class="oc-tab" data-tab="settings">الإعدادات</button>
 </div>
 
@@ -98,6 +99,48 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   <div class="oc-card" style="margin-top:12px">
     <h3>الأجهزة المكتشفة</h3>
     <table class="oc-table"><thead><tr><th>الجهاز</th><th>MAC</th><th>الكيبل</th></tr></thead><tbody id="dev-rows"></tbody></table>
+  </div>
+</div>
+
+<div class="oc-panel" id="panel-bond">
+  <div class="oc-card">
+    <h3>وضع الدمج (OpenMPTCProuter)</h3>
+    <div class="oc-meta">اختر بروفايل جاهز — الأفضل ضد الانقطاع هو «سلس»</div>
+    <div class="oc-form">
+      <div class="oc-field">
+        <label>البروفايل</label>
+        <select id="bond-profile">
+          <option value="smooth">سلس (موصى به) — تقليل الفصل عند سقوط خط</option>
+          <option value="speed">أقصى سرعة — توزيع على كل الخطوط</option>
+          <option value="failover">تحويل احتياطي — خط أساسي + احتياطي</option>
+        </select>
+        <div class="oc-help" id="bond-help">
+          السلس يستخدم جدولة MPTCP مكرّرة (bpf_red) + كشف أعطال سريع + تفعيل الخطين معاً بدون اعتماد على Master وحيد.
+        </div>
+      </div>
+      <div class="oc-field">
+        <label>جدولة MPTCP الحالية</label>
+        <input id="bond-sched" readonly>
+      </div>
+      <div class="oc-field">
+        <label>وضع الدمج</label>
+        <input id="bond-master" readonly>
+      </div>
+      <div class="oc-field">
+        <label>Keepalive للنفق</label>
+        <input id="bond-ka" readonly>
+      </div>
+      <div class="oc-actions">
+        <button class="oc-btn" type="button" id="bond-apply">تطبيق بروفايل الدمج</button>
+      </div>
+      <div class="oc-help">
+        ملاحظة: تم إصلاح مشكلة شائعة — النظام كان مضبوط على جدولة <b>blest</b> وهي غير موجودة في نواة 6.12، لذلك الدمج ما كان يشتغل صح.
+      </div>
+    </div>
+  </div>
+  <div class="oc-card" style="margin-top:12px">
+    <h3>أدوار الوصلات في الدمج</h3>
+    <table class="oc-table"><thead><tr><th>الوصلة</th><th>الجهاز</th><th>Multipath</th><th>Auto</th></tr></thead><tbody id="bond-wans"></tbody></table>
   </div>
 </div>
 
@@ -233,19 +276,26 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         if(c.settings.proxy) $('set-proxy').value=c.settings.proxy;
         if(c.settings.master) $('set-master').value=c.settings.master;
         $('set-lan').value=c.settings.lan_ip||'';
+        if(c.settings.bond_profile) $('bond-profile').value=c.settings.bond_profile;
+        $('bond-sched').value=(c.settings.mptcp_live||c.settings.mptcp_scheduler||'—')+'  (متاح: '+(c.settings.mptcp_available||'')+')';
+        $('bond-master').value=c.settings.master||'—';
+        $('bond-ka').value=c.settings.keepalive||'—';
       }
       var sel=$('wan-dev'); sel.innerHTML='';
-      var rows='';
+      var rows='', brows='';
       (c.devices||[]).forEach(function(d){
-        if(d.name==='eth0') return; // LAN
+        if(d.name==='eth0' || d.name==='bonding_masters') return;
         var o=document.createElement('option'); o.value=d.name; o.textContent=d.name+(d.carrier==1?' (كيبل واصل)':'');
         sel.appendChild(o);
         rows += '<tr><td>'+d.name+'</td><td>'+(d.mac||'')+'</td><td>'+(d.carrier==1?'واصل':'مفصول')+'</td></tr>';
       });
       $('dev-rows').innerHTML=rows||'<tr><td colspan="3">لا توجد أجهزة</td></tr>';
-      // prefill first wan config
+      (c.wans||[]).forEach(function(w){
+        brows += '<tr><td>'+w.name+'</td><td>'+(w.dev||'')+'</td><td>'+(w.multipath||'')+'</td><td>'+(w.auto||'')+'</td></tr>';
+      });
+      $('bond-wans').innerHTML=brows||'<tr><td colspan="4">لا توجد وصلات</td></tr>';
       var wans=c.wans||[];
-      if(wans[0] && wans[0].dev){ $('wan-name').value=wans[0].name; $('wan-dev').value=wans[0].dev; if(wans[0].multipath) $('wan-mp').value=wans[0].multipath; }
+      if(wans[0] && wans[0].dev){ $('wan-name').value=wans[0].name; try{$('wan-dev').value=wans[0].dev;}catch(e){}; if(wans[0].multipath) $('wan-mp').value=wans[0].multipath; }
     }).catch(function(){ toast('تعذّر قراءة الإعدادات'); });
   }
 
@@ -323,6 +373,22 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       if(d.lan_changed){ toast('تم تغيير LAN — افتح العنوان الجديد بعد لحظات'); }
       setTimeout(function(){ busy=false; loadConfig(); }, 2000);
     }).catch(function(){ toast('فشل الحفظ'); busy=false; });
+  };
+
+  $('bond-profile').onchange=function(){
+    var p=$('bond-profile').value, h=$('bond-help');
+    if(p==='smooth') h.textContent='السلس: الخطّان يعملان معاً + جدولة مكرّرة bpf_red + كشف أعطال سريع. أفضل ضد الانقطاع.';
+    else if(p==='speed') h.textContent='أقصى سرعة: توزيع Round-Robin على الخطوط. أسرع تجميع، أقل حماية ضد انقطاع خط.';
+    else h.textContent='تحويل احتياطي: WAN1 أساسي وWAN2 احتياطي. انتقال أنظف عند العطل، بدون دمج حقيقي للسرعة.';
+  };
+  $('bond-apply').onclick=function(){
+    if(busy) return; busy=true;
+    toast('جاري تطبيق بروفايل الدمج…');
+    api('setbond', '&profile='+encodeURIComponent($('bond-profile').value)).then(function(d){
+      if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
+      toast('تم: '+d.profile+' · scheduler='+d.scheduler);
+      setTimeout(function(){ busy=false; loadConfig(); loadStatus(); }, 3500);
+    }).catch(function(){ toast('فشل تطبيق الدمج'); busy=false; });
   };
 
   loadStatus();
