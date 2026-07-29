@@ -28,16 +28,28 @@ VPS_HOST=$(uci -q get glorytun-udp.vpn.host)
 TUN_DEV=$(uci -q get glorytun-udp.vpn.dev); [ -z "$TUN_DEV" ] && TUN_DEV=tun0
 TUN_PEER=$(uci -q get glorytun-udp.vpn.remoteip); [ -z "$TUN_PEER" ] && TUN_PEER=10.255.254.1
 
-OTA_RAW="https://raw.githubusercontent.com/mmlktahmd4-cmd/omr-dashboard/main"
+OTA_GITHUB="https://raw.githubusercontent.com/mmlktahmd4-cmd/omr-dashboard/main"
+OTA_VPS="http://191.218.161.141:8088"
+OTA_JSDELIVR="https://cdn.jsdelivr.net/gh/mmlktahmd4-cmd/omr-dashboard@main"
 VER_FILE="/www/omr-dash/VERSION"
 LOCAL_VER=$(cat "$VER_FILE" 2>/dev/null | tr -d ' \r\n'); [ -z "$LOCAL_VER" ] && LOCAL_VER="0"
 
 fetch() {
-  if command -v curl >/dev/null 2>&1; then curl -fsSL -m 45 "$1"
-  else uclient-fetch -q -T 45 -O - "$1"; fi
+  if command -v curl >/dev/null 2>&1; then curl -4 -fsSL -m 20 "$1"
+  else uclient-fetch -q -T 20 -O - "$1"; fi
+}
+# Try VPS mirror first (reachable when GitHub is blocked), then GitHub, then jsDelivr
+ota_get() {
+  # $1 = relative path e.g. VERSION or install.sh
+  _rel="$1"
+  for _base in "$OTA_VPS" "$OTA_GITHUB" "$OTA_JSDELIVR"; do
+    if fetch "$_base/$_rel" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
 }
 fetch_insecure() {
-  # HTTPS with self-signed VPS admin cert
   if command -v curl >/dev/null 2>&1; then curl -fskL -m 20 "$@"
   elif command -v wget >/dev/null 2>&1; then wget -qO- --no-check-certificate -T 20 "$@"
   else return 1; fi
@@ -416,23 +428,21 @@ set_server() {
 
 # ---------- OTA update ----------
 do_update() {
-  CB=$(date +%s)
   SCRIPT=/tmp/omr-ota-install.sh
   LOGF=/tmp/omr-ota.log
   rm -f "$SCRIPT" "$LOGF"
   OLD="$LOCAL_VER"
-  if ! fetch "$OTA_RAW/install.sh?t=$CB" > "$SCRIPT" 2>"$LOGF"; then
-    # fallback without query string (some fetchers dislike ?)
-    if ! fetch "$OTA_RAW/install.sh" > "$SCRIPT" 2>>"$LOGF"; then
-      err_json "download failed" ",\"log\":$(json_str "$(cat "$LOGF" 2>/dev/null)")"
-      return
-    fi
+  if ! ota_get "install.sh" > "$SCRIPT" 2>"$LOGF"; then
+    err_json "download failed (VPS+GitHub)" ",\"log\":$(json_str "$(cat "$LOGF" 2>/dev/null)")"
+    return
   fi
   if [ ! -s "$SCRIPT" ]; then
     err_json "empty install script"; return
   fi
   sed -i 's/\r$//' "$SCRIPT" 2>/dev/null || true
   chmod +x "$SCRIPT"
+  # Prefer VPS mirror inside installer too
+  export OMR_OTA_VPS="$OTA_VPS"
   sh "$SCRIPT" >"$LOGF" 2>&1
   RC=$?
   NEW=$(cat "$VER_FILE" 2>/dev/null | tr -d ' \r\n')
@@ -441,7 +451,6 @@ do_update() {
     err_json "update failed" ",\"version\":\"$NEW\",\"log\":$(json_str "$(tail -c 1500 "$LOGF" 2>/dev/null)")"
     return
   fi
-  # bust LuCI caches again
   rm -rf /tmp/luci-* /tmp/luci-indexcache* 2>/dev/null || true
   /etc/init.d/uhttpd reload >/dev/null 2>&1 || true
   printf '{"ok":true,"a":"update","version":"%s","old":"%s","log":%s}' "$NEW" "$OLD" "$(json_str "$(tail -c 1200 "$LOGF" 2>/dev/null)")"
@@ -613,8 +622,7 @@ case "$A" in
               /etc/init.d/shadowsocks-rust restart >/dev/null 2>&1; ok_json reconnect ;;
   exitip)     _e=$(uclient-fetch -q -T 8 -O - http://ip.openmptcprouter.com 2>/dev/null)
               printf '{"ok":true,"exit_ip":"%s"}' "$_e" ;;
-  version)    _r=$(fetch "$OTA_RAW/VERSION?t=$(date +%s)" 2>/dev/null | tr -d ' \r\n')
-              [ -z "$_r" ] && _r=$(fetch "$OTA_RAW/VERSION" 2>/dev/null | tr -d ' \r\n')
+  version)    _r=$(ota_get VERSION 2>/dev/null | tr -d ' \r\n')
               printf '{"ok":true,"local":"%s","remote":"%s","update_available":%s}' \
                 "$LOCAL_VER" "$_r" "$([ -n "$_r" ] && [ "$_r" != "$LOCAL_VER" ] && echo true || echo false)" ;;
   update)     do_update ;;
