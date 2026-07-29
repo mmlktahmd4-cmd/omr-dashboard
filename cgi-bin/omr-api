@@ -317,11 +317,20 @@ set_bond() {
 set_server() {
   HOST=$(qget host)
   TOKEN=$(qget token)
+  [ -z "$TOKEN" ] && TOKEN=$(qget password)
   PORT=$(qget port); [ -z "$PORT" ] && PORT=65500
   USER=$(qget user); [ -z "$USER" ] && USER=openmptcprouter
   if [ -z "$HOST" ]; then err_json "host required"; return; fi
+  # Never use SSH ports for admin API key fetch
+  case "$PORT" in
+    22|65222)
+      err_json "wrong port: use admin API 65500 (not SSH 22/65222)"
+      return
+      ;;
+  esac
+  PORT=65500
   if [ -z "$TOKEN" ]; then TOKEN=$(uci -q get openmptcprouter.vps.password); fi
-  if [ -z "$TOKEN" ]; then err_json "server key required"; return; fi
+  if [ -z "$TOKEN" ]; then err_json "username/password required (VPS admin key)"; return; fi
 
   uci -q delete openmptcprouter.vps.ip || true
   uci add_list openmptcprouter.vps.ip="$HOST"
@@ -346,7 +355,7 @@ set_server() {
   uci set shadowsocks-rust.sss0.server="$HOST"
   uci -q set shadowsocks-rust.sss0.disabled='0'
 
-  # --- pull token + config from VPS admin API (HTTPS then HTTP) ---
+  # --- pull token + config from VPS admin API on 65500 (HTTPS then HTTP) ---
   KEYS_OK=0
   GT_OK=0
   SS_OK=0
@@ -357,8 +366,9 @@ set_server() {
   for SCHEME in https http; do
     BASE="$SCHEME://$HOST:$PORT"
     if command -v curl >/dev/null 2>&1; then
-      curl -sk -m 20 -X POST "$BASE/token" \
-        -d "username=$USER&password=$TOKEN" > "$TOKFILE" 2>/dev/null || true
+      curl -4 -sk -m 20 -X POST "$BASE/token" \
+        --data-urlencode "username=$USER" \
+        --data-urlencode "password=$TOKEN" > "$TOKFILE" 2>/dev/null || true
     elif command -v wget >/dev/null 2>&1; then
       wget -qO "$TOKFILE" --no-check-certificate -T 20 \
         --post-data="username=$USER&password=$TOKEN" "$BASE/token" 2>/dev/null || true
@@ -366,7 +376,7 @@ set_server() {
     ACCESS=$(sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$TOKFILE" 2>/dev/null | head -1)
     [ -z "$ACCESS" ] && continue
     if command -v curl >/dev/null 2>&1; then
-      curl -sk -m 25 -H "Authorization: Bearer $ACCESS" "$BASE/config" > "$CFG" 2>/dev/null || true
+      curl -4 -sk -m 25 -H "Authorization: Bearer $ACCESS" "$BASE/config" > "$CFG" 2>/dev/null || true
     elif command -v wget >/dev/null 2>&1; then
       wget -qO "$CFG" --no-check-certificate -T 25 \
         --header="Authorization: Bearer $ACCESS" "$BASE/config" 2>/dev/null || true
@@ -390,7 +400,6 @@ set_server() {
       GT_OK=1
     fi
 
-    # prefer shadowsocks-rust (2022) from xray.config, else classic shadowsocks
     SSRKEY=$(jsonfilter -i "$CFG" -e '@.xray.config.sskey' 2>/dev/null)
     SSRMETHOD=$(jsonfilter -i "$CFG" -e '@.xray.config.ss_method' 2>/dev/null)
     SSPORT=$(jsonfilter -i "$CFG" -e '@.shadowsocks.port' 2>/dev/null)
@@ -407,9 +416,9 @@ set_server() {
       [ -n "$SSPORT" ] && uci set shadowsocks-rust.sss0.server_port="$SSPORT"
       SS_OK=1
     fi
-    MSG="keys fetched from API"
+    MSG="keys fetched via API :$PORT (not SSH)"
   else
-    MSG="API unreachable — saved login; openmptcprouter-vps will retry get_config"
+    MSG="API :$PORT unreachable — login saved; will retry get_config"
   fi
 
   uci commit openmptcprouter

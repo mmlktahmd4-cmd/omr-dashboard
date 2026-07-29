@@ -58,13 +58,16 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   <div class="oc-card">
     <h3>ربط سيرفر OpenMPTCProuter (VPS)</h3>
     <div class="oc-body">
-      <div class="oc-meta">أدخل IP السيرفر + اسم المستخدم + مفتاح الإدارة من تثبيت السيرفر — النظام يجلب مفاتيح Glorytun والبروكسي تلقائياً.</div>
+      <div class="oc-meta">أدخل IP + اسم المستخدم + كلمة مرور السيرفر (مفتاح الإدارة من نهاية تثبيت VPS). الربط يتم عبر منفذ الإدارة <b>65500</b> فقط — ليس SSH وليس المنفذ 22.</div>
+      <div class="oc-alert warn" style="margin-bottom:12px"><b>المنافذ الصحيحة</b>إدارة API: <b>65500</b> · SSH للسيرفر: <b>65222</b> · لا تستخدم المنفذ 22 أبداً لربط المفاتيح.</div>
       <div class="oc-form">
         <div class="oc-field"><label>عنوان IP السيرفر</label><input id="srv-ip" placeholder="191.x.x.x" autocomplete="off"></div>
-        <div class="oc-field"><label>اسم المستخدم</label><input id="srv-user" value="openmptcprouter" autocomplete="off"></div>
-        <div class="oc-field"><label>مفتاح السيرفر (Admin key)</label><input id="srv-token" type="password" placeholder="من مخرجات تثبيت VPS" autocomplete="off">
-          <div class="oc-help" id="srv-hint">بعد الحفظ يتم طلب /token ثم /config وجلب المفاتيح مباشرة.</div></div>
-        <div class="oc-field"><label>منفذ الإدارة</label><input id="srv-port" value="65500"></div>
+        <div class="oc-field"><label>اسم المستخدم</label><input id="srv-user" value="openmptcprouter" autocomplete="username">
+          <div class="oc-help">عادةً: openmptcprouter</div></div>
+        <div class="oc-field"><label>كلمة مرور السيرفر</label><input id="srv-token" type="password" placeholder="مفتاح الإدارة من تثبيت VPS" autocomplete="current-password">
+          <div class="oc-help" id="srv-hint">هي «OpenMPTCProuter Server key» من مخرجات التثبيت — ليست كلمة مرور SSH.</div></div>
+        <div class="oc-field"><label>منفذ الإدارة (API)</label><input id="srv-port" value="65500" readonly>
+          <div class="oc-help">ثابت على 65500 — جلب المفاتيح لا يستخدم 22 ولا 65222.</div></div>
         <div id="srv-result" style="display:none;margin:8px 0"></div>
         <div class="oc-actions">
           <button class="oc-btn" type="button" id="srv-save">ربط وجلب المفاتيح تلقائياً</button>
@@ -518,7 +521,9 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         $('srv-ip').value=c.server.ip||'';
         $('srv-port').value=c.server.port||'65500';
         $('srv-user').value=c.server.username||'openmptcprouter';
-        $('srv-hint').textContent = c.server.token_set ? 'التوكن محفوظ. أدخل جديداً فقط إذا تغيّر.' : 'لا يوجد توكن — الصقه من مخرجات تثبيت السيرفر.';
+        $('srv-hint').textContent = c.server.token_set
+          ? 'كلمة المرور محفوظة. اتركها فارغة لإعادة الجلب، أو الصق مفتاحاً جديداً إن تغيّر. الربط عبر 65500 فقط.'
+          : 'الصق «OpenMPTCProuter Server key» من تثبيت VPS هنا ككلمة مرور — ليس SSH.';
       }
       if(c.settings){
         if(c.settings.vpn) $('set-vpn').value=c.settings.vpn;
@@ -611,14 +616,18 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   $('srv-save').onclick=function(){
     if(busy) return;
     var host=$('srv-ip').value.trim(), token=$('srv-token').value.trim();
+    var user=$('srv-user').value.trim()||'openmptcprouter';
+    var port='65500'; // always admin API — never 22
     if(!host){ toast('أدخل IP السيرفر'); return; }
-    if(!token){ toast('أدخل مفتاح السيرفر'); return; }
-    busy=true; toast('جاري الربط وجلب المفاتيح…');
-    var box=$('srv-result'); if(box){ box.style.display='block'; box.innerHTML='<div class="oc-alert warn"><b>جاري الجلب…</b>الاتصال بـ API السيرفر</div>'; }
+    if(!user){ toast('أدخل اسم المستخدم'); return; }
+    // كلمة المرور اختيارية إذا كانت محفوظة مسبقاً
+    busy=true; toast('جاري الربط وجلب المفاتيح عبر المنفذ 65500…');
+    var box=$('srv-result'); if(box){ box.style.display='block'; box.innerHTML='<div class="oc-alert warn"><b>جاري الجلب…</b>HTTPS :'+port+' /token ثم /config</div>'; }
     var extra='&host='+encodeURIComponent(host)
       +'&token='+encodeURIComponent(token)
-      +'&port='+encodeURIComponent($('srv-port').value.trim()||'65500')
-      +'&user='+encodeURIComponent($('srv-user').value.trim()||'openmptcprouter');
+      +'&password='+encodeURIComponent(token)
+      +'&port='+encodeURIComponent(port)
+      +'&user='+encodeURIComponent(user);
     api('setserver', extra, true).then(function(d){
       if(!d.ok){
         toast(d.error||'فشل');
@@ -631,13 +640,13 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       toast(ok ? 'تم جلب المفاتيح' : 'تم الحفظ — الجلب لاحقاً');
       if(box){
         box.innerHTML = '<div class="oc-alert '+(ok?'ok':'warn')+'"><b>'+(ok?'تم جلب المفاتيح تلقائياً':'تم حفظ الدخول')+'</b>'
-          + parts.join(' · ') + '<br>'+(d.msg||'')+'</div>';
+          + parts.join(' · ') + ' · المنفذ '+(d.port||'65500')+'<br>'+(d.msg||'')+'</div>';
       }
       $('srv-token').value='';
       setTimeout(function(){ busy=false; loadStatus(); loadConfig(); }, 5000);
     }).catch(function(){
       toast('فشل الربط');
-      if(box) box.innerHTML='<div class="oc-alert bad"><b>فشل الاتصال</b>تحقق من الإنترنت ومنفذ 65500</div>';
+      if(box) box.innerHTML='<div class="oc-alert bad"><b>فشل الاتصال</b>تأكد من الإنترنت ومنفذ الإدارة 65500 (ليس 22)</div>';
       busy=false;
     });
   };
