@@ -735,6 +735,193 @@ logs_json() {
   printf '{"ok":true,"lines":%s}' "$(json_str "$_l")"
 }
 
+# ---------- disk clone (flash → internal HDD) ----------
+CLONE_DIR=/tmp/omr-clone
+human_bytes() {
+  _b="$1"
+  case "$_b" in ''|*[!0-9]*) printf '0 B'; return ;; esac
+  if [ "$_b" -ge 1073741824 ] 2>/dev/null; then
+    printf '%s GB' "$(awk "BEGIN{printf \"%.1f\", $_b/1073741824}")"
+  elif [ "$_b" -ge 1048576 ] 2>/dev/null; then
+    printf '%s MB' "$(awk "BEGIN{printf \"%.0f\", $_b/1048576}")"
+  else
+    printf '%s KB' "$((_b/1024))"
+  fi
+}
+boot_disk() {
+  # قرص الإقلاع الحالي (الفلاشة عادةً)
+  _rp=$(readlink -f /dev/root 2>/dev/null)
+  [ -z "$_rp" ] && _rp=$(awk '$2=="/"{print $1; exit}' /proc/mounts)
+  case "$_rp" in
+    *overlay*|"")
+      _rp=$(awk '$2=="/rom"||$2=="/overlay"{print $1; exit}' /proc/mounts)
+      ;;
+  esac
+  # /dev/sda2 → /dev/sda ، /dev/mmcblk0p2 → /dev/mmcblk0 ، /dev/nvme0n1p2 → /dev/nvme0n1
+  case "$_rp" in
+    /dev/mmcblk*p[0-9]*) printf '%s' "${_rp%p[0-9]*}" ;;
+    /dev/nvme*p[0-9]*)   printf '%s' "${_rp%p[0-9]*}" ;;
+    /dev/*[0-9])         printf '%s' "${_rp%%[0-9]*}" ;;
+    /dev/*)              printf '%s' "$_rp" ;;
+    *)                   printf '' ;;
+  esac
+}
+disk_bytes() {
+  blockdev --getsize64 "$1" 2>/dev/null || {
+    _n=$(printf '%s' "$1" | sed 's#^/dev/##')
+    _sec=$(cat /sys/block/"$_n"/size 2>/dev/null)
+    [ -n "$_sec" ] && echo $((_sec*512)) || echo 0
+  }
+}
+disk_model() {
+  _n=$(printf '%s' "$1" | sed 's#^/dev/##')
+  _m=$(cat /sys/block/"$_n"/device/model 2>/dev/null | sed 's/[[:space:]]*$//;s/^[[:space:]]*//')
+  [ -z "$_m" ] && _m=$(cat /sys/block/"$_n"/device/name 2>/dev/null | sed 's/[[:space:]]*$//')
+  [ -z "$_m" ] && _m=$(cat /sys/class/block/"$_n"/device/model 2>/dev/null | sed 's/[[:space:]]*$//')
+  printf '%s' "$_m"
+}
+disks_json() {
+  _boot=$(boot_disk)
+  _bsz=0
+  [ -n "$_boot" ] && [ -b "$_boot" ] && _bsz=$(disk_bytes "$_boot")
+  _list=""
+  for _sys in /sys/block/sd* /sys/block/vd* /sys/block/xvd* /sys/block/nvme*n* /sys/block/mmcblk*; do
+    [ -e "$_sys" ] || continue
+    _name=${_sys##*/}
+    # تخطّي البارتشنات الفرعية والـloop
+    case "$_name" in
+      loop*|ram*|zram*|dm-*|*boot*|*rpmb*) continue ;;
+      mmcblk*[0-9]p[0-9]*) continue ;;
+      nvme*p[0-9]*) continue ;;
+    esac
+    # mmcblk0 نعم، mmcblk0boot0 لا
+    case "$_name" in mmcblk[0-9]*boot*|mmcblk[0-9]*rpmb*) continue ;; esac
+    _dev="/dev/$_name"
+    [ -b "$_dev" ] || continue
+    _sz=$(disk_bytes "$_dev")
+    [ "$_sz" = "0" ] && continue
+    _rem=$(cat /sys/block/"$_name"/removable 2>/dev/null); [ -z "$_rem" ] && _rem=0
+    _model=$(disk_model "$_dev")
+    _isboot=false; [ -n "$_boot" ] && [ "$_dev" = "$_boot" ] && _isboot=true
+    _tran=""
+    [ -f /sys/block/"$_name"/device/../../../transport ] && _tran=$(cat /sys/block/"$_name"/device/../../../transport 2>/dev/null)
+    [ -z "$_tran" ] && [ "$_rem" = "1" ] && _tran=usb
+    [ -z "$_tran" ] && _tran=ata
+    _kind="قرص داخلي"
+    [ "$_rem" = "1" ] && _kind="وسائط قابلة للإزالة (USB)"
+    [ "$_isboot" = "true" ] && _kind="قرص الإقلاع الحالي (المصدر)"
+    _ok=false; _why=""
+    if [ "$_isboot" = "true" ]; then
+      _why="هذا مصدر النظام الحالي — لا يُنسخ إليه"
+    elif [ "$_bsz" -gt 0 ] 2>/dev/null && [ "$_sz" -ge "$_bsz" ] 2>/dev/null; then
+      _ok=true
+      _why="متوافق — الحجم كافٍ ($(human_bytes "$_sz") ≥ $(human_bytes "$_bsz"))"
+    elif [ "$_bsz" -gt 0 ] 2>/dev/null; then
+      _why="غير متوافق — أصغر من المصدر ($(human_bytes "$_sz") < $(human_bytes "$_bsz"))"
+    else
+      _why="تعذّر تحديد حجم المصدر"
+    fi
+    [ -n "$_list" ] && _list="$_list,"
+    _list="$_list{\"name\":\"$_name\",\"dev\":\"$_dev\",\"size\":$_sz,\"size_h\":$(json_str "$(human_bytes "$_sz")"),\"model\":$(json_str "$_model"),\"removable\":$([ "$_rem" = "1" ] && echo true || echo false),\"transport\":$(json_str "$_tran"),\"kind\":$(json_str "$_kind"),\"is_boot\":$_isboot,\"compatible\":$_ok,\"reason\":$(json_str "$_why")}"
+  done
+  _arch=$(uname -m)
+  _efi=false; [ -d /sys/firmware/efi ] && _efi=true
+  printf '{"ok":true,"boot":"%s","boot_size":%s,"boot_size_h":%s,"arch":"%s","uefi":%s,"disks":[%s]}' \
+    "$_boot" "${_bsz:-0}" "$(json_str "$(human_bytes "${_bsz:-0}")")" "$_arch" "$_efi" "$_list"
+}
+clone_running() {
+  [ -f "$CLONE_DIR/pid" ] || return 1
+  _p=$(cat "$CLONE_DIR/pid" 2>/dev/null)
+  [ -n "$_p" ] && kill -0 "$_p" 2>/dev/null
+}
+clone_status() {
+  mkdir -p "$CLONE_DIR"
+  _st=$(cat "$CLONE_DIR/status" 2>/dev/null); [ -z "$_st" ] && _st=idle
+  _pct=$(cat "$CLONE_DIR/pct" 2>/dev/null); case "$_pct" in ''|*[!0-9]*) _pct=0 ;; esac
+  _src=$(cat "$CLONE_DIR/src" 2>/dev/null)
+  _dst=$(cat "$CLONE_DIR/dst" 2>/dev/null)
+  _msg=$(cat "$CLONE_DIR/msg" 2>/dev/null)
+  _log=$(tail -c 800 "$CLONE_DIR/log" 2>/dev/null)
+  _run=false; clone_running && _run=true
+  # تقدّم تقريبي من بايتات الكتابة إن وُجدت
+  if [ "$_run" = "true" ] && [ -f "$CLONE_DIR/pid" ]; then
+    _pid=$(cat "$CLONE_DIR/pid")
+    _wb=$(sed -n 's/^write_bytes: *//p' /proc/"$_pid"/io 2>/dev/null | head -1)
+    _tsz=$(cat "$CLONE_DIR/total" 2>/dev/null)
+    if [ -n "$_wb" ] && [ -n "$_tsz" ] && [ "$_tsz" -gt 0 ] 2>/dev/null; then
+      _pct=$(awk "BEGIN{p=int(100*$_wb/$_tsz); if(p>99)p=99; if(p<0)p=0; print p}")
+      echo "$_pct" > "$CLONE_DIR/pct"
+    fi
+  fi
+  printf '{"ok":true,"status":"%s","running":%s,"pct":%s,"src":"%s","dst":"%s","msg":%s,"log":%s}' \
+    "$_st" "$_run" "$_pct" "$_src" "$_dst" "$(json_str "$_msg")" "$(json_str "$_log")"
+}
+clone_start() {
+  DST=$(qget target)
+  CONF=$(qget confirm)
+  SRC=$(boot_disk)
+  [ -z "$SRC" ] || [ ! -b "$SRC" ] && { err_json "تعذّر اكتشاف قرص الإقلاع"; return; }
+  case "$DST" in
+    /dev/sd[a-z]|/dev/vd[a-z]|/dev/xvd[a-z]|/dev/mmcblk[0-9]|/dev/nvme[0-9]n[0-9]) : ;;
+    *) err_json "قرص هدف غير صالح"; return ;;
+  esac
+  [ ! -b "$DST" ] && { err_json "القرص الهدف غير موجود"; return; }
+  [ "$DST" = "$SRC" ] && { err_json "لا يمكن النسخ إلى قرص الإقلاع نفسه"; return; }
+  [ "$CONF" != "INSTALL" ] && { err_json "يلزم التأكيد: اكتب INSTALL"; return; }
+  clone_running && { err_json "عملية نسخ جارية حالياً"; return; }
+  _ss=$(disk_bytes "$SRC"); _ds=$(disk_bytes "$DST")
+  [ "$_ss" -gt 0 ] 2>/dev/null || { err_json "تعذّر قراءة حجم المصدر"; return; }
+  [ "$_ds" -ge "$_ss" ] 2>/dev/null || { err_json "القرص الهدف أصغر من المصدر"; return; }
+  # تأكد أن الهدف ليس مركّباً كنظام حيّ
+  if mount 2>/dev/null | awk -v d="$DST" '$1==d{f=1} END{exit !f}'; then
+    err_json "القرص الهدف مركّب — أزل أي إقلاع/تركيب منه أولاً"
+    return
+  fi
+  # بارتشنات الهدف إن رُكّبت
+  if mount 2>/dev/null | awk -v d="$DST" 'index($1,d)==1 && $1!=d{f=1} END{exit !f}'; then
+    err_json "بارتشن من الهدف مركّب — افصله أولاً"
+    return
+  fi
+  mkdir -p "$CLONE_DIR"
+  rm -f "$CLONE_DIR"/*
+  printf '%s' "$SRC" > "$CLONE_DIR/src"
+  printf '%s' "$DST" > "$CLONE_DIR/dst"
+  printf '%s' "$_ss" > "$CLONE_DIR/total"
+  printf '0' > "$CLONE_DIR/pct"
+  printf 'running' > "$CLONE_DIR/status"
+  printf 'جاري النسخ… لا تطفئ الجهاز ولا تسحب الفلاشة' > "$CLONE_DIR/msg"
+  : > "$CLONE_DIR/log"
+  (
+    echo "clone $SRC -> $DST (${_ss} bytes)" >> "$CLONE_DIR/log"
+    sync
+    # نسخ القرص؛ BusyBox dd قد لا يدعم status=progress
+    dd if="$SRC" of="$DST" bs=4M conv=fsync >>"$CLONE_DIR/log" 2>&1
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+      echo "failed" > "$CLONE_DIR/status"
+      echo "فشل النسخ (رمز $_rc) — راجع السجل" > "$CLONE_DIR/msg"
+      echo "dd exit $_rc" >> "$CLONE_DIR/log"
+      exit 1
+    fi
+    sync
+    # مواءمة GPT مع حجم الهارد الأكبر إن أمكن
+    if command -v sgdisk >/dev/null 2>&1; then
+      echo "sgdisk -e $DST" >> "$CLONE_DIR/log"
+      sgdisk -e "$DST" >>"$CLONE_DIR/log" 2>&1 || true
+    elif command -v parted >/dev/null 2>&1; then
+      echo "parted fix GPT" >> "$CLONE_DIR/log"
+      parted -s "$DST" print >>"$CLONE_DIR/log" 2>&1 || true
+    fi
+    sync
+    echo "100" > "$CLONE_DIR/pct"
+    echo "done" > "$CLONE_DIR/status"
+    echo "اكتمل النسخ. أوقف الجهاز، اجعل الهارد أول جهاز إقلاع في BIOS، ثم أقلع بدون الفلاشة." > "$CLONE_DIR/msg"
+    echo "clone finished OK" >> "$CLONE_DIR/log"
+  ) >/dev/null 2>&1 &
+  echo $! > "$CLONE_DIR/pid"
+  ok_json clone ",\"src\":\"$SRC\",\"dst\":\"$DST\",\"status\":\"running\""
+}
+
 # ---------- bonding profiles ----------
 set_bond() {
   PROF=$(qget profile); [ -z "$PROF" ] && PROF=smooth
@@ -1525,6 +1712,9 @@ case "$A" in
   setpass)    set_pass ;;
   sysaction)  sys_action ;;
   logs)       logs_json ;;
+  disks)      disks_json ;;
+  clone)      clone_start ;;
+  clonestatus) clone_status ;;
   setbond)    set_bond ;;
   status|*)   status_json ;;
 esac

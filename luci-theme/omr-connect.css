@@ -778,3 +778,14 @@ body.omr-connect .oc-app .oc-btn.danger{
   background:linear-gradient(135deg,#ff7a86,#e0384a) !important; color:#fff !important;
   box-shadow:0 8px 20px rgba(224,56,74,.32) !important;
 }
+/* clone progress */
+body.omr-connect .oc-app .cl-progress{ }
+body.omr-connect .oc-app .cl-bar{
+  height:14px; background:rgba(255,255,255,.1); border-radius:8px; overflow:hidden;
+  border:1px solid var(--c-brd);
+}
+body.omr-connect .oc-app .cl-bar span{
+  display:block; height:100%; width:0; border-radius:8px;
+  background:linear-gradient(90deg,var(--c-acc),var(--c-ok));
+  transition:width .4s ease;
+}

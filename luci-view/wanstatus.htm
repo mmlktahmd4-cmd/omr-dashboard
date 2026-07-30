@@ -26,6 +26,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   <button type="button" class="oc-tab" data-tab="tunnel">النفق والبروكسي</button>
   <button type="button" class="oc-tab" data-tab="perf">الكفاءة</button>
   <button type="button" class="oc-tab" data-tab="general">عام</button>
+  <button type="button" class="oc-tab" data-tab="clone">تثبيت على قرص</button>
   <button type="button" class="oc-tab" data-tab="device">الجهاز</button>
 </div>
 
@@ -493,6 +494,54 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   </div>
 </div>
 
+<!-- CLONE / INSTALL TO DISK -->
+<div class="oc-panel" id="panel-clone">
+  <div class="oc-card">
+    <h3>تثبيت النظام على قرص آخر</h3>
+    <div class="oc-body">
+      <div class="oc-alert warn" style="margin-bottom:12px">
+        <b>مهم</b>
+        ينسخ النظام من قرص الإقلاع الحالي (غالباً الفلاشة) إلى القرص الذي تختاره (الهارد الداخلي).
+        العملية تمسح كل بيانات القرص الهدف. لا تسحب الفلاشة ولا تطفئ الجهاز أثناء النسخ.
+      </div>
+      <div id="cl-summary" class="oc-meta">جاري فحص الأقراص…</div>
+      <div class="oc-actions" style="border:0;padding:0;margin:8px 0 12px">
+        <button class="oc-btn ghost" type="button" id="cl-refresh">فحص الأقراص والتوافق</button>
+      </div>
+      <div id="cl-disks" style="overflow:auto"></div>
+    </div>
+  </div>
+  <div class="oc-card">
+    <h3>بدء النسخ</h3>
+    <div class="oc-body">
+      <div class="oc-form">
+        <div class="oc-field">
+          <label>القرص الهدف</label>
+          <select id="cl-target"><option value="">— اختر قرصاً متوافقاً —</option></select>
+          <div class="oc-help">يظهر فقط الأقراص الأكبر من أو تساوي قرص المصدر وغير المستخدمة للإقلاع الحالي.</div>
+        </div>
+        <div class="oc-field">
+          <label>تأكيد الأمان</label>
+          <input id="cl-confirm" placeholder="اكتب INSTALL بالإنجليزي" autocomplete="off">
+          <div class="oc-help">للتأكيد اكتب حرفياً: <b>INSTALL</b> — هذا يمنع النسخ بالخطأ.</div>
+        </div>
+        <div class="oc-actions">
+          <button class="oc-btn danger" type="button" id="cl-start">بدء النسخ إلى القرص الهدف</button>
+        </div>
+      </div>
+      <div id="cl-progress" class="cl-progress" style="display:none;margin-top:14px">
+        <div class="cl-bar"><span id="cl-bar" style="width:0%"></span></div>
+        <div class="oc-meta" style="margin-top:8px"><b id="cl-pct">0%</b> — <span id="cl-msg">—</span></div>
+        <pre id="cl-log" class="oc-logs" style="max-height:160px;margin-top:10px"></pre>
+      </div>
+      <div id="cl-done" class="oc-alert ok" style="display:none;margin-top:14px">
+        <b>اكتمل النسخ</b>
+        1) أوقف الجهاز · 2) ادخل BIOS واجعل الهارد أول جهاز إقلاع · 3) عطّل Secure Boot · 4) اسحب الفلاشة وأقلع.
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="oc-panel" id="panel-device">
   <div class="oc-card">
     <h3>مواصفات الجهاز</h3>
@@ -549,6 +598,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       var _t=tab.getAttribute('data-tab');
       $('panel-'+_t).classList.add('active');
       if(_t==='device') loadSysinfo();
+      else if(_t==='clone'){ loadDisks(); pollClone(true); }
       else if(_t==='general'){ loadConfig(); loadLogs(); }
       else if(_t!=='status') loadConfig();
     };
@@ -1262,6 +1312,82 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     }).catch(function(){ box.textContent='تعذّر جلب السجل'; });
   }
   $('logs-refresh').onclick=function(){ loadLogs(); };
+
+  var _cloneTimer=null;
+  function loadDisks(){
+    var box=$('cl-disks'), sum=$('cl-summary'), sel=$('cl-target');
+    if(box) box.innerHTML='<div class="oc-meta">جاري الفحص…</div>';
+    api('disks').then(function(d){
+      if(!d||!d.ok){ if(box) box.innerHTML='<div class="oc-alert bad"><b>فشل</b>تعذّر قراءة الأقراص</div>'; return; }
+      if(sum){
+        sum.innerHTML='مصدر الإقلاع: <b>'+(d.boot||'—')+'</b> ('+(d.boot_size_h||'—')+')'
+          +' · المعمارية: <b>'+(d.arch||'—')+'</b>'
+          +' · وضع الإقلاع: <b>'+(d.uefi?'UEFI':'BIOS/Legacy')+'</b>';
+      }
+      var rows='<table class="oc-table"><thead><tr><th>القرص</th><th>الطراز</th><th>الحجم</th><th>النوع</th><th>التوافق</th></tr></thead><tbody>';
+      if(sel){ sel.innerHTML='<option value="">— اختر قرصاً متوافقاً —</option>'; }
+      (d.disks||[]).forEach(function(x){
+        var badge=x.is_boot?'<span class="oc-pill warn">مصدر</span>'
+          :(x.compatible?'<span class="oc-pill ok">متوافق</span>':'<span class="oc-pill bad">غير متوافق</span>');
+        rows+='<tr><td><b>'+x.dev+'</b></td><td>'+(x.model||'—')+'</td><td>'+(x.size_h||'—')+'</td><td>'+(x.kind||'—')+'</td>'
+          +'<td>'+badge+'<div class="oc-help" style="margin:4px 0 0">'+String(x.reason||'')+'</div></td></tr>';
+        if(sel && x.compatible && !x.is_boot){
+          var o=document.createElement('option'); o.value=x.dev;
+          o.textContent=x.dev+' — '+(x.model||'قرص')+' ('+(x.size_h||'')+')';
+          sel.appendChild(o);
+        }
+      });
+      rows+='</tbody></table>';
+      if(!(d.disks&&d.disks.length)) rows='<div class="oc-alert warn"><b>لا أقراص</b>لم يُعثر على أقراص إضافية. وصّل الهارد ثم اضغط فحص الأقراص.</div>';
+      if(box) box.innerHTML=rows;
+    }).catch(function(){ if(box) box.innerHTML='<div class="oc-alert bad"><b>فشل الاتصال</b></div>'; });
+  }
+  function applyCloneStatus(d){
+    if(!d) return;
+    var prog=$('cl-progress'), done=$('cl-done');
+    if(d.status==='idle' && !d.running){ return; }
+    if(prog) prog.style.display='block';
+    var pct=parseInt(d.pct||0,10); if(isNaN(pct)) pct=0;
+    if($('cl-bar')) $('cl-bar').style.width=pct+'%';
+    if($('cl-pct')) $('cl-pct').textContent=pct+'%';
+    if($('cl-msg')) $('cl-msg').textContent=d.msg||d.status||'—';
+    if($('cl-log') && d.log) $('cl-log').textContent=d.log;
+    if(done) done.style.display=(d.status==='done')?'block':'none';
+    if($('cl-start')) $('cl-start').disabled=!!d.running;
+  }
+  function pollClone(once){
+    if(_cloneTimer){ clearInterval(_cloneTimer); _cloneTimer=null; }
+    function tick(){
+      api('clonestatus').then(function(d){
+        applyCloneStatus(d);
+        if(d && d.running){
+          if(!_cloneTimer) _cloneTimer=setInterval(tick, 2500);
+        } else if(_cloneTimer){ clearInterval(_cloneTimer); _cloneTimer=null; }
+      }).catch(function(){});
+    }
+    tick();
+    if(!once){ /* started from start button */ }
+  }
+  $('cl-refresh').onclick=function(){ loadDisks(); pollClone(true); };
+  $('cl-start').onclick=function(){
+    if(busy) return;
+    var tgt=$('cl-target').value, conf=($('cl-confirm').value||'').trim();
+    if(!tgt){ toast('اختر القرص الهدف'); return; }
+    if(conf!=='INSTALL'){ toast('اكتب INSTALL للتأكيد'); return; }
+    if(!confirm('تأكيد نهائي: سيتم مسح كل بيانات '+tgt+' ونسخ النظام عليه. هل أنت متأكد؟')) return;
+    busy=true; $('cl-start').disabled=true;
+    if($('cl-progress')) $('cl-progress').style.display='block';
+    if($('cl-msg')) $('cl-msg').textContent='بدء النسخ…';
+    if($('cl-bar')) $('cl-bar').style.width='1%';
+    if($('cl-pct')) $('cl-pct').textContent='1%';
+    if($('cl-done')) $('cl-done').style.display='none';
+    toast('بدأ النسخ — لا تطفئ الجهاز');
+    api('clone','&target='+encodeURIComponent(tgt)+'&confirm=INSTALL',true).then(function(d){
+      busy=false;
+      if(!d||!d.ok){ toast((d&&d.error)||'فشل البدء'); $('cl-start').disabled=false; return; }
+      pollClone(false);
+    }).catch(function(){ busy=false; $('cl-start').disabled=false; toast('فشل بدء النسخ'); });
+  };
 
   loadStatus();
   checkUpdates(true);
