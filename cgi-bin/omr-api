@@ -817,21 +817,33 @@ human_bytes() {
   fi
 }
 boot_disk() {
-  # قرص الإقلاع الحالي (الفلاشة عادةً)
-  _rp=$(readlink -f /dev/root 2>/dev/null)
-  [ -z "$_rp" ] && _rp=$(awk '$2=="/"{print $1; exit}' /proc/mounts)
-  case "$_rp" in
-    *overlay*|"")
-      _rp=$(awk '$2=="/rom"||$2=="/overlay"{print $1; exit}' /proc/mounts)
-      ;;
-  esac
-  # /dev/sda2 → /dev/sda ، /dev/mmcblk0p2 → /dev/mmcblk0 ، /dev/nvme0n1p2 → /dev/nvme0n1
+  # قرص الإقلاع الحالي (الفلاشة عادةً) — لا تعتمد على /dev/root وحده
+  _rp=""
+  for _mp in / /rom /overlay /boot; do
+    _cand=$(awk -v m="$_mp" '$2==m{print $1; exit}' /proc/mounts)
+    case "$_cand" in
+      /dev/sd[a-z]*|/dev/vd[a-z]*|/dev/xvd[a-z]*|/dev/mmcblk*|/dev/nvme*)
+        _rp="$_cand"; break ;;
+    esac
+  done
+  # إن بقي /dev/root: خذ جهاز بارتشن الجذر من /boot أو من cmdline
+  if [ -z "$_rp" ] || [ "$_rp" = "/dev/root" ]; then
+    _rp=$(awk '$2=="/boot"{print $1; exit}' /proc/mounts)
+  fi
+  if [ -z "$_rp" ] || [ "$_rp" = "/dev/root" ]; then
+    _pu=$(sed -n 's/.*root=PARTUUID=\([^ ]*\).*/\1/p' /proc/cmdline 2>/dev/null | head -1)
+    if [ -n "$_pu" ] && [ -e "/dev/disk/by-partuuid/$_pu" ]; then
+      _rp=$(readlink -f "/dev/disk/by-partuuid/$_pu" 2>/dev/null)
+    fi
+  fi
   case "$_rp" in
     /dev/mmcblk*p[0-9]*) printf '%s' "${_rp%p[0-9]*}" ;;
     /dev/nvme*p[0-9]*)   printf '%s' "${_rp%p[0-9]*}" ;;
-    /dev/*[0-9])         printf '%s' "${_rp%%[0-9]*}" ;;
-    /dev/*)              printf '%s' "$_rp" ;;
-    *)                   printf '' ;;
+    /dev/sd[a-z]*[0-9]|/dev/vd[a-z]*[0-9]|/dev/xvd[a-z]*[0-9])
+      printf '%s' "$(printf '%s' "$_rp" | sed 's/[0-9]*$//')" ;;
+    /dev/sd[a-z]|/dev/vd[a-z]|/dev/xvd[a-z]|/dev/mmcblk[0-9]|/dev/nvme[0-9]n[0-9])
+      printf '%s' "$_rp" ;;
+    *) printf '' ;;
   esac
 }
 disk_bytes() {
@@ -940,25 +952,24 @@ clone_start() {
   _ss=$(disk_bytes "$SRC"); _ds=$(disk_bytes "$DST")
   [ "$_ss" -gt 0 ] 2>/dev/null || { err_json "تعذّر قراءة حجم المصدر"; return; }
   [ "$_ds" -ge "$_ss" ] 2>/dev/null || { err_json "القرص الهدف أصغر من المصدر"; return; }
-  # تأكد أن الهدف ليس مركّباً كنظام حيّ
-  if mount 2>/dev/null | awk -v d="$DST" '$1==d{f=1} END{exit !f}'; then
-    err_json "القرص الهدف مركّب — أزل أي إقلاع/تركيب منه أولاً"
-    return
-  fi
-  # بارتشنات الهدف إن رُكّبت
-  if mount 2>/dev/null | awk -v d="$DST" 'index($1,d)==1 && $1!=d{f=1} END{exit !f}'; then
-    err_json "بارتشن من الهدف مركّب — افصله أولاً"
-    return
-  fi
+  # فكّ تركيب بارتشنات الهدف تلقائياً (مثل /mnt/sda1) قبل النسخ
   mkdir -p "$CLONE_DIR"
-  rm -f "$CLONE_DIR"/*
+  : > "$CLONE_DIR/log"
+  for _mp in $(awk -v d="$DST" 'index($1,d)==1{print $2}' /proc/mounts); do
+    echo "umount $_mp" >> "$CLONE_DIR/log"
+    umount -l "$_mp" >>"$CLONE_DIR/log" 2>&1 || true
+  done
+  if mount 2>/dev/null | awk -v d="$DST" 'index($1,d)==1{f=1} END{exit !f}'; then
+    err_json "تعذّر فك تركيب بارتشنات الهدف — أزلها من /mnt ثم أعد المحاولة"
+    return
+  fi
+  rm -f "$CLONE_DIR"/pid "$CLONE_DIR"/status "$CLONE_DIR"/pct "$CLONE_DIR"/src "$CLONE_DIR"/dst "$CLONE_DIR"/total "$CLONE_DIR"/msg 2>/dev/null
   printf '%s' "$SRC" > "$CLONE_DIR/src"
   printf '%s' "$DST" > "$CLONE_DIR/dst"
   printf '%s' "$_ss" > "$CLONE_DIR/total"
   printf '0' > "$CLONE_DIR/pct"
   printf 'running' > "$CLONE_DIR/status"
   printf 'جاري النسخ… لا تطفئ الجهاز ولا تسحب الفلاشة' > "$CLONE_DIR/msg"
-  : > "$CLONE_DIR/log"
   (
     echo "clone $SRC -> $DST (${_ss} bytes)" >> "$CLONE_DIR/log"
     sync
