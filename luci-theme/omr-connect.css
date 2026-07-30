@@ -498,20 +498,20 @@ body.omr-connect input[type="checkbox"]{
    Pure visual layer over existing markup/IDs (backend untouched).
    ============================================================ */
 body.omr-connect .oc-app{
-  --c-bg1:#0a1422; --c-bg2:#0d1e34; --c-bg3:#0b1830;
-  --c-card:rgba(255,255,255,.045);
-  --c-brd:rgba(140,180,235,.14);
-  --c-txt:#e8f0fb; --c-mut:#93a7c4; --c-mut2:#6f849f;
-  --c-acc:#39c0ff; --c-acc2:#2f7bff; --c-acc3:#7b5cff;
-  --c-ok:#2fe08a; --c-warn:#ffc24b; --c-bad:#ff5d6c;
-  position:relative; direction:rtl;
-  margin:2px 0 12px; padding:18px; border-radius:18px; color:var(--c-txt);
+  --c-bg1:#13294417; --c-bg2:#17334f; --c-bg3:#132a46;
+  --c-card:rgba(255,255,255,.075);
+  --c-brd:rgba(150,190,240,.24);
+  --c-txt:#f6faff; --c-mut:#c8d7ea; --c-mut2:#aabdd4;
+  --c-acc:#4ecaff; --c-acc2:#3d86ff; --c-acc3:#8a6bff;
+  --c-ok:#3aee97; --c-warn:#ffcf5e; --c-bad:#ff6b78;
+  position:relative; direction:rtl; font-size:14px; line-height:1.55;
+  margin:2px 0 12px; padding:20px; border-radius:18px; color:var(--c-txt);
   background:
-    radial-gradient(1200px 520px at 100% -20%, rgba(57,192,255,.10), transparent 60%),
-    radial-gradient(900px 520px at -10% 0%, rgba(123,92,255,.10), transparent 55%),
-    linear-gradient(160deg, var(--c-bg1), var(--c-bg2) 55%, var(--c-bg3));
-  border:1px solid rgba(120,160,220,.18);
-  box-shadow:0 24px 70px rgba(3,10,22,.55), inset 0 1px 0 rgba(255,255,255,.05);
+    radial-gradient(1200px 520px at 100% -20%, rgba(78,202,255,.12), transparent 60%),
+    radial-gradient(900px 520px at -10% 0%, rgba(138,107,255,.12), transparent 55%),
+    linear-gradient(160deg, #15294420, #17334f 55%, #142c48);
+  border:1px solid rgba(140,180,235,.22);
+  box-shadow:0 24px 70px rgba(3,10,22,.5), inset 0 1px 0 rgba(255,255,255,.06);
   overflow:hidden;
 }
 body.omr-connect .oc-app::before{
@@ -732,4 +732,49 @@ body.omr-connect .oc-app a{ color:var(--c-acc) !important; }
   body.omr-connect .oc-app .oc-hero{ padding:16px; }
   body.omr-connect .oc-app .oc-hero-stats{ width:100%; }
   body.omr-connect .oc-app .oc-hero .oc-btn{ width:100%; }
+}
+
+/* ---- readability boost + desktop layout ---- */
+body.omr-connect .oc-app{ max-width:1180px; margin-inline:auto; }
+body.omr-connect .oc-app .oc-meta{ color:var(--c-mut) !important; font-size:13px; line-height:1.6; }
+body.omr-connect .oc-app .oc-card > h3{ font-size:14.5px !important; letter-spacing:.1px; }
+body.omr-connect .oc-app .oc-row{ font-size:13.5px; padding:4px 0; }
+body.omr-connect .oc-app .oc-row b{ color:#ffffff; font-weight:700; }
+body.omr-connect .oc-app .oc-row span:first-child{ color:var(--c-mut) !important; }
+body.omr-connect .oc-app .oc-mini h4{ font-size:14.5px; }
+body.omr-connect .oc-app .fl-sub{ color:#cfdcee; }
+body.omr-connect .oc-app .oc-stat .lbl{ color:#cfdcee; }
+body.omr-connect .oc-app .oc-hero p{ color:#dbe6f5; }
+body.omr-connect .oc-app .oc-help{ color:var(--c-mut2) !important; font-size:12px; }
+body.omr-connect .oc-app label,
+body.omr-connect .oc-app .oc-field label{ color:#d7e3f2 !important; font-size:13px; font-weight:600; }
+body.omr-connect .oc-app input[type="text"],
+body.omr-connect .oc-app input[type="password"],
+body.omr-connect .oc-app input[type="number"],
+body.omr-connect .oc-app select,
+body.omr-connect .oc-app textarea{ font-size:14px !important; }
+
+/* two-column card layout for wide screens */
+body.omr-connect .oc-app .oc-grid2{ display:grid; grid-template-columns:1fr; gap:12px; }
+@media (min-width:900px){
+  body.omr-connect .oc-app .oc-grid2{ grid-template-columns:1fr 1fr; align-items:start; }
+  body.omr-connect .oc-app .oc-grid2 > .oc-card{ margin:0; }
+  /* wider forms + roomy fields on desktop */
+  body.omr-connect .oc-app .oc-form{ max-width:none; }
+  body.omr-connect .oc-app .oc-field{ grid-template-columns:220px 1fr; gap:14px; }
+}
+@media (min-width:1200px){
+  body.omr-connect .oc-app .oc-grid{ grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); }
+}
+
+/* system log viewer */
+body.omr-connect .oc-app .oc-logs{
+  margin:0; max-height:340px; overflow:auto; direction:ltr; text-align:left;
+  background:rgba(3,12,26,.6); border:1px solid var(--c-brd); border-radius:10px;
+  padding:12px 14px; font-family:"Consolas","Courier New",monospace; font-size:12px; line-height:1.5;
+  color:#cfe0f2; white-space:pre-wrap; word-break:break-word;
+}
+body.omr-connect .oc-app .oc-btn.danger{
+  background:linear-gradient(135deg,#ff7a86,#e0384a) !important; color:#fff !important;
+  box-shadow:0 8px 20px rgba(224,56,74,.32) !important;
 }

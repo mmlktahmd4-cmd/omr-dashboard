@@ -25,6 +25,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   <button type="button" class="oc-tab" data-tab="bond">الدمج</button>
   <button type="button" class="oc-tab" data-tab="tunnel">النفق والبروكسي</button>
   <button type="button" class="oc-tab" data-tab="perf">الكفاءة</button>
+  <button type="button" class="oc-tab" data-tab="general">عام</button>
   <button type="button" class="oc-tab" data-tab="device">الجهاز</button>
 </div>
 
@@ -411,6 +412,87 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   </div>
 </div>
 
+<!-- GENERAL SETTINGS -->
+<div class="oc-panel" id="panel-general">
+  <div class="oc-grid2">
+    <div class="oc-card">
+      <h3>الإعدادات العامة</h3>
+      <div class="oc-body">
+        <div class="oc-meta">اسم الجهاز، المنطقة الزمنية، وخوادم DNS التي تُوزَّع على أجهزة الشبكة.</div>
+        <div class="oc-form">
+          <div class="oc-field"><label>اسم الجهاز (Hostname)</label><input id="gen-host" placeholder="OpenMPTCProuter"></div>
+          <div class="oc-field"><label>المنطقة الزمنية</label>
+            <select id="gen-tz">
+              <option value="UTC">UTC — التوقيت العالمي</option>
+              <option value="Asia/Baghdad">بغداد (UTC+3)</option>
+              <option value="Asia/Riyadh">الرياض (UTC+3)</option>
+              <option value="Asia/Kuwait">الكويت (UTC+3)</option>
+              <option value="Asia/Qatar">قطر (UTC+3)</option>
+              <option value="Asia/Amman">عمّان (UTC+3)</option>
+              <option value="Asia/Damascus">دمشق (UTC+3)</option>
+              <option value="Asia/Beirut">بيروت (UTC+2/3)</option>
+              <option value="Asia/Jerusalem">القدس (UTC+2/3)</option>
+              <option value="Asia/Dubai">دبي (UTC+4)</option>
+              <option value="Asia/Muscat">مسقط (UTC+4)</option>
+              <option value="Africa/Cairo">القاهرة (UTC+2/3)</option>
+              <option value="Africa/Khartoum">الخرطوم (UTC+2)</option>
+              <option value="Africa/Tripoli">طرابلس (UTC+2)</option>
+              <option value="Africa/Casablanca">الدار البيضاء (UTC+1)</option>
+              <option value="Europe/Istanbul">إسطنبول (UTC+3)</option>
+              <option value="Europe/London">لندن (UTC+0/1)</option>
+              <option value="Europe/Paris">باريس (UTC+1/2)</option>
+            </select>
+          </div>
+          <div class="oc-field"><label>خوادم DNS للعملاء</label><input id="gen-dns" placeholder="1.1.1.1 8.8.8.8"><div class="oc-help">افصل العناوين بمسافة. اتركه فارغاً للوضع الافتراضي.</div></div>
+          <div class="oc-actions">
+            <button class="oc-btn" type="button" id="gen-save">حفظ الإعدادات العامة</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="oc-card">
+      <h3>كلمة مرور الإدارة</h3>
+      <div class="oc-body">
+        <div class="oc-meta">كلمة مرور دخول لوحة التحكم (المستخدم root). غيّرها فوراً بعد أول تشغيل.</div>
+        <div class="oc-form">
+          <div class="oc-field"><label>كلمة المرور الجديدة</label><input id="gen-pass" type="password" autocomplete="new-password"></div>
+          <div class="oc-field"><label>تأكيد كلمة المرور</label><input id="gen-pass2" type="password" autocomplete="new-password"></div>
+          <div class="oc-actions">
+            <button class="oc-btn" type="button" id="gen-pass-save">تغيير كلمة المرور</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="oc-card">
+    <h3>أدوات النظام</h3>
+    <div class="oc-body">
+      <div class="oc-meta">إجراءات صيانة سريعة. إعادة التشغيل والإطفاء يقطعان الإنترنت مؤقتاً عن جميع الأجهزة.</div>
+      <div class="oc-actions" style="border:0;padding:0;margin:0">
+        <button class="oc-btn ghost" type="button" data-sys="flushdns" data-l="تفريغ DNS">تفريغ ذاكرة DNS</button>
+        <button class="oc-btn ghost" type="button" data-sys="flushct" data-l="تفريغ الاتصالات">تفريغ جدول الاتصالات</button>
+        <button class="oc-btn ghost" type="button" data-sys="netrestart" data-l="إعادة الشبكة">إعادة تشغيل الشبكة</button>
+        <button class="oc-btn danger" type="button" data-sys="reboot" data-l="إعادة التشغيل">إعادة تشغيل الجهاز</button>
+        <button class="oc-btn danger" type="button" data-sys="shutdown" data-l="إطفاء">إطفاء الجهاز</button>
+      </div>
+      <div class="oc-actions" style="margin-top:12px">
+        <a class="oc-btn ghost" href="<%=url("admin/system/flash")%>">نسخ احتياطي / استعادة الإعداد</a>
+        <a class="oc-btn ghost" href="<%=url("admin/system/admin")%>">إدارة النظام المتقدمة</a>
+        <a class="oc-btn ghost" href="<%=url("admin/system/reboot")%>">صفحة إعادة التشغيل الأصلية</a>
+      </div>
+    </div>
+  </div>
+  <div class="oc-card">
+    <h3>سجلّ النظام</h3>
+    <div class="oc-body">
+      <div class="oc-actions" style="border:0;padding:0;margin:0 0 10px">
+        <button class="oc-btn ghost" type="button" id="logs-refresh">تحديث السجل</button>
+      </div>
+      <pre id="logs-box" class="oc-logs">اضغط «تحديث السجل» لعرض آخر الأحداث…</pre>
+    </div>
+  </div>
+</div>
+
 <div class="oc-panel" id="panel-device">
   <div class="oc-card">
     <h3>مواصفات الجهاز</h3>
@@ -467,6 +549,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       var _t=tab.getAttribute('data-tab');
       $('panel-'+_t).classList.add('active');
       if(_t==='device') loadSysinfo();
+      else if(_t==='general'){ loadConfig(); loadLogs(); }
       else if(_t!=='status') loadConfig();
     };
   });
@@ -784,6 +867,11 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         $('px-key-hint').textContent = c.proxy_cfg.key_set ? 'كلمة المرور محفوظة — اترك الحقل فارغاً إن لم تتغير.' : 'لا توجد كلمة مرور — اربط السيرفر أو الصق المفتاح.';
       }
       if(c.lan) fillLanForm(c.lan);
+      if(c.general){
+        if($('gen-host')) $('gen-host').value=c.general.hostname||'';
+        if($('gen-dns')) $('gen-dns').value=(c.general.dns||'').trim();
+        if(c.general.zonename) setSelectValue('gen-tz', c.general.zonename);
+      }
       var sel=$('wan-dev'); sel.innerHTML='';
       var rows='', wrows='';
       (c.devices||[]).forEach(function(d){
@@ -847,10 +935,14 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   function fmtUptime(s){ s=parseInt(s||0,10); var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60); var o=''; if(d)o+=d+'ي '; if(h||d)o+=h+'س '; return o+m+'د'; }
   function fmtKB(kb){ kb=parseInt(kb||0,10); if(kb>=1048576) return (kb/1048576).toFixed(1)+' GB'; if(kb>=1024) return (kb/1024).toFixed(0)+' MB'; return kb+' KB'; }
   function usageBar(used,total){ used=parseInt(used||0,10); total=parseInt(total||0,10); var p=total>0?Math.round(used*100/total):0; if(p>100)p=100; var cls=p>=90?'bad':(p>=70?'warn':'ok'); return '<div class="dv-bar"><span class="'+cls+'" style="width:'+p+'%"></span></div><div class="dv-barlbl">'+p+'%</div>'; }
-  function loadSysinfo(){
+  function loadSysinfo(tries){
+    if(tries==null) tries=3;
     $('dv-specs').innerHTML='جاري القراءة…';
     api('sysinfo').then(function(d){
-      if(!d||!d.ok){ $('dv-specs').innerHTML='<p>تعذّر جلب المواصفات</p>'; return; }
+      if(!d||!d.ok){
+        if(tries>0){ setTimeout(function(){ loadSysinfo(tries-1); }, 1500); return; }
+        $('dv-specs').innerHTML='<p>تعذّر جلب المواصفات — اضغط «تحديث القراءة»</p>'; return;
+      }
       $('dv-mem').innerHTML='<div class="dv-usehdr">الذاكرة: '+fmtKB(d.mem_used)+' / '+fmtKB(d.mem_total)+'</div>'+usageBar(d.mem_used,d.mem_total);
       $('dv-disk').innerHTML='<div class="dv-usehdr">القرص (/): '+fmtKB(d.disk_used)+' / '+fmtKB(d.disk_total)+'</div>'+usageBar(d.disk_used,d.disk_total);
       var cpu=(d.cpu||'—'); if(d.cores) cpu+=' × '+d.cores; if(d.mhz) cpu+=' @ '+d.mhz+'MHz';
@@ -873,7 +965,10 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       html+='</tbody></table>';
       $('dv-specs').innerHTML=html;
       $('dv-curVer').textContent=d.dash_version||'—';
-    }).catch(function(){ $('dv-specs').innerHTML='<p>تعذّر الاتصال بالجهاز</p>'; });
+    }).catch(function(){
+      if(tries>0){ setTimeout(function(){ loadSysinfo(tries-1); }, 1500); return; }
+      $('dv-specs').innerHTML='<p>تعذّر الاتصال بالجهاز — اضغط «تحديث القراءة»</p>';
+    });
   }
   function dvCheck(silent){
     $('dv-remoteVer').textContent='...';
@@ -1115,6 +1210,58 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       setTimeout(function(){ busy=false; loadConfig(); }, 4000);
     }).catch(function(){ toast('فشل حفظ LAN'); busy=false; });
   };
+
+  $('gen-save').onclick=function(){
+    if(busy) return; busy=true; toast('حفظ الإعدادات العامة…');
+    var extra='&hostname='+encodeURIComponent($('gen-host').value.trim())
+      +'&zonename='+encodeURIComponent($('gen-tz').value)
+      +'&dns='+encodeURIComponent($('gen-dns').value.trim());
+    api('setgeneral', extra, true).then(function(d){
+      if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
+      toast('تم حفظ الإعدادات العامة');
+      setTimeout(function(){ busy=false; loadConfig(); }, 2500);
+    }).catch(function(){ toast('فشل الحفظ'); busy=false; });
+  };
+  $('gen-pass-save').onclick=function(){
+    if(busy) return;
+    var p=$('gen-pass').value, p2=$('gen-pass2').value;
+    if(!p || p.length<4){ toast('كلمة المرور قصيرة (4 أحرف على الأقل)'); return; }
+    if(p!==p2){ toast('كلمتا المرور غير متطابقتين'); return; }
+    busy=true; toast('تغيير كلمة المرور…');
+    api('setpass','&password='+encodeURIComponent(p)+'&password2='+encodeURIComponent(p2), true).then(function(d){
+      if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
+      $('gen-pass').value=''; $('gen-pass2').value='';
+      toast('تم تغيير كلمة المرور');
+      busy=false;
+    }).catch(function(){ toast('فشل التغيير'); busy=false; });
+  };
+  document.addEventListener('click', function(ev){
+    var s=ev.target.closest('[data-sys]');
+    if(!s || busy) return;
+    var op=s.getAttribute('data-sys'), label=s.getAttribute('data-l')||op;
+    if((op==='reboot'||op==='shutdown') && !confirm('تأكيد: '+label+'؟ سينقطع الإنترنت عن جميع الأجهزة.')) return;
+    busy=true; toast('جاري: '+label+'…');
+    api('sysaction','&op='+encodeURIComponent(op), true).then(function(d){
+      if(!d.ok){ toast(d.error||'فشل'); busy=false; return; }
+      if(op==='reboot') toast('تُعاد التشغيل الآن… انتظر دقيقة ثم حدّث الصفحة');
+      else if(op==='shutdown') toast('يُطفأ الجهاز الآن');
+      else toast('تم: '+label);
+      setTimeout(function(){ busy=false; }, 3000);
+    }).catch(function(){
+      if(op==='reboot'||op==='shutdown'){ toast('يُنفّذ '+label+'…'); }
+      else toast('فشل: '+label);
+      busy=false;
+    });
+  });
+  function loadLogs(){
+    var box=$('logs-box'); if(!box) return;
+    box.textContent='جاري التحميل…';
+    api('logs','&n=150').then(function(d){
+      box.textContent=(d&&d.lines)?d.lines:'لا يوجد سجل';
+      box.scrollTop=box.scrollHeight;
+    }).catch(function(){ box.textContent='تعذّر جلب السجل'; });
+  }
+  $('logs-refresh').onclick=function(){ loadLogs(); };
 
   loadStatus();
   checkUpdates(true);

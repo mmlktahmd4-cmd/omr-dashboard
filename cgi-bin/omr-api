@@ -609,6 +609,11 @@ config_json() {
   _dhcp_leasetime=$(uci -q get dhcp.lan.leasetime); [ -z "$_dhcp_leasetime" ] && _dhcp_leasetime=12h
   _lan_dhcp_server=true; [ "$_dhcp_ignore" = "1" ] && _lan_dhcp_server=false
 
+  _hostname=$(uci -q get system.@system[0].hostname); [ -z "$_hostname" ] && _hostname=$(cat /proc/sys/kernel/hostname 2>/dev/null)
+  _zonename=$(uci -q get system.@system[0].zonename); [ -z "$_zonename" ] && _zonename=UTC
+  _tz=$(uci -q get system.@system[0].timezone)
+  _dns_lan=$(uci -q get network.lan.dns | tr '\n' ' ')
+
   _devs=""
   for d in $(ls /sys/class/net 2>/dev/null); do
     case "$d" in lo|tun*|wg*|ifb*|sit*|gre*|teql*|ip6*|erspan*|br-*|wlan*|docker*|veth*|bonding_masters) continue ;; esac
@@ -649,9 +654,85 @@ config_json() {
     "$_ss_dis" "$_ss_host" "$_ss_port" "$_ss_method" "$_ss_key_set" "$_ss_rules_dis" "$_ss_redir"
   printf '"lan":{"proto":"%s","ip":"%s","netmask":"%s","gateway":"%s","device":"%s","dhcp_server":%s,"dhcp_start":"%s","dhcp_limit":"%s","dhcp_leasetime":"%s"},' \
     "$_lan_proto" "$_lan_ip" "$_lan_mask" "$_lan_gw" "$_lan_dev" "$_lan_dhcp_server" "$_dhcp_start" "$_dhcp_limit" "$_dhcp_leasetime"
+  printf '"general":{"hostname":%s,"zonename":%s,"timezone":%s,"dns":%s},' \
+    "$(json_str "$_hostname")" "$(json_str "$_zonename")" "$(json_str "$_tz")" "$(json_str "$_dns_lan")"
   printf '"devices":[%s],' "$_devs"
   printf '"wans":[%s]' "$_wj"
   printf '}'
+}
+
+# ---------- general settings (hostname / timezone / DNS) ----------
+tz_posix() {
+  # خريطة مبسّطة: اسم المنطقة → سلسلة POSIX TZ
+  case "$1" in
+    Asia/Baghdad|Asia/Riyadh|Asia/Kuwait|Asia/Qatar|Asia/Aden|Asia/Bahrain|Europe/Istanbul|Asia/Amman|Asia/Damascus) echo '<+03>-3' ;;
+    Asia/Dubai|Asia/Muscat) echo '<+04>-4' ;;
+    Asia/Beirut) echo 'EET-2EEST,M3.5.0/0,M10.5.0/0' ;;
+    Africa/Cairo) echo 'EET-2EEST,M4.5.5/0,M10.5.4/24' ;;
+    Africa/Tripoli|Africa/Khartoum) echo 'EET-2' ;;
+    Africa/Casablanca) echo '<+01>-1' ;;
+    Asia/Jerusalem) echo 'IST-2IDT,M3.4.4/26,M10.5.0' ;;
+    Europe/London) echo 'GMT0BST,M3.5.0/1,M10.5.0' ;;
+    Europe/Paris|Europe/Berlin|Europe/Madrid|Europe/Rome) echo 'CET-1CEST,M3.5.0,M10.5.0/3' ;;
+    UTC|*) echo 'UTC0' ;;
+  esac
+}
+set_general() {
+  HN=$(qget hostname)
+  ZN=$(qget zonename)
+  DNS=$(qget dns)
+  _changed=0
+  if [ -n "$HN" ]; then
+    case "$HN" in *[!A-Za-z0-9._-]*) err_json "invalid hostname"; return ;; esac
+    uci set system.@system[0].hostname="$HN"
+    uci -q set network.lan.hostname="$HN" 2>/dev/null || true
+    printf '%s' "$HN" > /proc/sys/kernel/hostname 2>/dev/null || true
+    _changed=1
+  fi
+  if [ -n "$ZN" ]; then
+    uci set system.@system[0].zonename="$ZN"
+    uci set system.@system[0].timezone="$(tz_posix "$ZN")"
+    _changed=1
+  fi
+  uci commit system
+  # DNS للعملاء عبر LAN
+  if [ -n "$DNS" ]; then
+    uci -q delete network.lan.dns 2>/dev/null || true
+    for _d in $DNS; do uci add_list network.lan.dns="$_d"; done
+    uci commit network
+    /etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
+  fi
+  /etc/init.d/system reload >/dev/null 2>&1 || true
+  ok_json setgeneral ",\"hostname\":$(json_str "$(uci -q get system.@system[0].hostname)"),\"zonename\":$(json_str "$(uci -q get system.@system[0].zonename)")"
+}
+set_pass() {
+  P=$(qget password)
+  P2=$(qget password2)
+  [ -z "$P" ] && { err_json "empty password"; return; }
+  [ "${#P}" -lt 4 ] && { err_json "password too short (min 4)"; return; }
+  [ -n "$P2" ] && [ "$P" != "$P2" ] && { err_json "passwords do not match"; return; }
+  if printf '%s\n%s\n' "$P" "$P" | passwd root >/dev/null 2>&1; then
+    ok_json setpass
+  else
+    err_json "passwd failed"
+  fi
+}
+sys_action() {
+  OP=$(qget op)
+  case "$OP" in
+    reboot)   ok_json sysaction ',"op":"reboot"'; (sleep 1; reboot) >/dev/null 2>&1 & ;;
+    shutdown) ok_json sysaction ',"op":"shutdown"'; (sleep 1; poweroff) >/dev/null 2>&1 & ;;
+    flushdns) /etc/init.d/dnsmasq restart >/dev/null 2>&1; /etc/init.d/unbound restart >/dev/null 2>&1; ok_json sysaction ',"op":"flushdns"' ;;
+    netrestart) ok_json sysaction ',"op":"netrestart"'; (sleep 1; /etc/init.d/network restart) >/dev/null 2>&1 & ;;
+    flushct)  (conntrack -F >/dev/null 2>&1 || echo f > /proc/net/nf_conntrack 2>/dev/null); ok_json sysaction ',"op":"flushct"' ;;
+    *)        err_json "unknown op" ;;
+  esac
+}
+logs_json() {
+  N=$(qget n); case "$N" in ''|*[!0-9]*) N=120 ;; esac
+  [ "$N" -gt 400 ] 2>/dev/null && N=400
+  _l=$(logread 2>/dev/null | tail -n "$N")
+  printf '{"ok":true,"lines":%s}' "$(json_str "$_l")"
 }
 
 # ---------- bonding profiles ----------
@@ -1440,6 +1521,10 @@ case "$A" in
   setproxy)   set_proxy_cfg ;;
   optimize)   optimize_stack ;;
   setlan)     set_lan ;;
+  setgeneral) set_general ;;
+  setpass)    set_pass ;;
+  sysaction)  sys_action ;;
+  logs)       logs_json ;;
   setbond)    set_bond ;;
   status|*)   status_json ;;
 esac
