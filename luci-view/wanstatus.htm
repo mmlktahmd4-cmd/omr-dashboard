@@ -6,6 +6,17 @@
 local ucic = luci.model.uci.cursor()
 local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
 %>
+<div class="oc-app" id="oc-app">
+<div class="oc-topbar">
+  <div class="oc-brandline">
+    <span class="oc-logo">OMR</span>
+    <div>
+      <div class="oc-appname">OMR Connect</div>
+      <div class="oc-apptag">مركز تحكّم نظام الدمج MPTCP</div>
+    </div>
+  </div>
+  <div class="oc-livedot" id="oc-livedot"><span></span>مباشر</div>
+</div>
 <div class="oc-tabs" id="oc-tabs">
   <button type="button" class="oc-tab active" data-tab="status">الحالة</button>
   <button type="button" class="oc-tab" data-tab="server">السيرفر</button>
@@ -14,11 +25,13 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   <button type="button" class="oc-tab" data-tab="bond">الدمج</button>
   <button type="button" class="oc-tab" data-tab="tunnel">النفق والبروكسي</button>
   <button type="button" class="oc-tab" data-tab="perf">الكفاءة</button>
+  <button type="button" class="oc-tab" data-tab="device">الجهاز</button>
 </div>
 
 <!-- STATUS -->
 <div class="oc-panel active" id="panel-status">
   <div class="oc-hero">
+    <div class="oc-hero-bg"></div>
     <div class="state">
       <div class="oc-orb warn" id="oc-orb">…</div>
       <div>
@@ -26,8 +39,15 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         <p id="oc-desc">لوحة إدارة Connect</p>
       </div>
     </div>
+    <div class="oc-hero-stats" id="oc-hero-stats">
+      <div class="oc-stat"><span class="lbl">السحب ↓</span><b id="oc-st-dl">—</b></div>
+      <div class="oc-stat"><span class="lbl">الرفع ↑</span><b id="oc-st-ul">—</b></div>
+      <div class="oc-stat"><span class="lbl">الخطوط</span><b id="oc-st-lines">—</b></div>
+      <div class="oc-stat"><span class="lbl">بنج الخروج</span><b id="oc-st-ping">—</b></div>
+    </div>
     <button class="oc-btn" id="oc-reconnect" type="button">إعادة الاتصال بالكامل</button>
   </div>
+  <div class="oc-flow" id="oc-flow"></div>
   <div class="oc-advice" id="oc-advice"></div>
   <div class="oc-card" id="oc-howto" style="display:none">
     <h3>كيف تشغّل النظام</h3>
@@ -391,6 +411,34 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   </div>
 </div>
 
+<div class="oc-panel" id="panel-device">
+  <div class="oc-card">
+    <h3>مواصفات الجهاز</h3>
+    <div class="oc-body">
+      <div class="dv-usage">
+        <div class="dv-usebox" id="dv-mem"></div>
+        <div class="dv-usebox" id="dv-disk"></div>
+      </div>
+      <div id="dv-specs" class="dv-specs">جاري القراءة…</div>
+      <div class="oc-actions" style="border:0;margin-top:8px;padding-top:0">
+        <button class="oc-btn ghost" type="button" id="dv-refresh">تحديث القراءة</button>
+      </div>
+    </div>
+  </div>
+  <div class="oc-card">
+    <h3>تحديث النظام عبر GitHub</h3>
+    <div class="oc-body">
+      <div class="oc-meta">الإصدار الحالي: <b id="dv-curVer">—</b> · على GitHub: <b id="dv-remoteVer">—</b></div>
+      <div class="oc-meta" id="dv-updMsg" style="color:#5a6b7d;margin-top:6px">اضغط "تحقق من التحديثات" لفحص GitHub.</div>
+      <div class="oc-actions" style="margin-top:10px">
+        <button class="oc-btn ghost" type="button" id="dv-check">تحقق من التحديثات</button>
+        <button class="oc-btn" type="button" id="dv-update">تحديث الآن</button>
+      </div>
+    </div>
+  </div>
+</div>
+</div><!-- /oc-app -->
+
 <div class="oc-toast" id="oc-toast"></div>
 
 <script type="text/javascript">//<![CDATA[
@@ -416,8 +464,10 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       document.querySelectorAll('.oc-tab').forEach(function(x){ x.classList.remove('active'); });
       document.querySelectorAll('.oc-panel').forEach(function(x){ x.classList.remove('active'); });
       tab.classList.add('active');
-      $('panel-'+tab.getAttribute('data-tab')).classList.add('active');
-      if(tab.getAttribute('data-tab')!=='status') loadConfig();
+      var _t=tab.getAttribute('data-tab');
+      $('panel-'+_t).classList.add('active');
+      if(_t==='device') loadSysinfo();
+      else if(_t!=='status') loadConfig();
     };
   });
 
@@ -498,6 +548,22 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     if(n>=1024) return (n/1024).toFixed(0)+' KB';
     return n+' B';
   }
+  function renderFlow(d,b){
+    var el=$('oc-flow'); if(!el) return;
+    var wans=d.wans||[], t=d.tunnel||{}, ex=d.exit||{};
+    var wn='';
+    wans.forEach(function(w){
+      var cls=w.net?'ok':((w.link||w.up)?'warn':'bad');
+      var sub=w.net?fmtBps(w.rx_bps):(w.link?'بلا نت':'واقف');
+      wn+='<div class="fl-node '+cls+'"><span class="fl-ic">📡</span><div class="fl-nm">'+String(w.name||'').toUpperCase()+'</div><div class="fl-sub">'+sub+'</div></div>';
+    });
+    if(!wn) wn='<div class="fl-node bad"><span class="fl-ic">📡</span><div class="fl-nm">لا وصلات</div></div>';
+    var core='<div class="fl-core"><span class="fl-ic">⚡</span><div class="fl-nm">الدمج</div><div class="fl-sub">'+(b.paths_online!=null?(b.paths_online+'/'+(b.paths_ready||0)):'—')+'</div></div>';
+    var tun='<div class="fl-node '+(t.up?'ok':'bad')+'"><span class="fl-ic">🔒</span><div class="fl-nm">النفق</div><div class="fl-sub">'+(t.lat?t.lat+'ms':'—')+'</div></div>';
+    var exit='<div class="fl-node '+(ex.ok?'ok':'warn')+'"><span class="fl-ic">🌐</span><div class="fl-nm">الخروج</div><div class="fl-sub">'+(ex.ip||'—')+'</div></div>';
+    var link='<i class="fl-link"></i>';
+    el.innerHTML='<div class="fl-stage fl-wans">'+wn+'</div>'+link+core+link+tun+link+exit;
+  }
   function renderStatus(d){
     var cards='', wanUp=0, sumRx=0, sumTx=0;
     (d.wans||[]).forEach(function(w,idx){
@@ -561,6 +627,12 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       +'<div class="oc-row"><span>الوصلات النشطة</span><span>'+wanUp+'</span></div></div>';
     $('oc-grid').innerHTML=cards;
 
+    if($('oc-st-dl')) $('oc-st-dl').textContent=fmtBps(sumRx);
+    if($('oc-st-ul')) $('oc-st-ul').textContent=fmtBps(sumTx);
+    if($('oc-st-lines')) $('oc-st-lines').textContent=wanUp+' / '+((d.wans||[]).length);
+    if($('oc-st-ping')) $('oc-st-ping').textContent=(ex.lat?ex.lat+' ms':'—');
+    renderFlow(d,b);
+
     var problems=[];
     if(b.state==='active'){
       if((b.paths_online||0)>=2 && b.redundant)
@@ -588,7 +660,19 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     if(d.version) $('oc-curVer').textContent=d.version;
   }
 
-  function loadStatus(){ api('status').then(renderStatus).catch(function(){ $('oc-title').textContent='تعذّر الاتصال'; }); }
+  var _statusFail=0, _lastGood=null;
+  function loadStatus(){
+    api('status').then(function(d){
+      // تجاهل ردّاً ناقصاً (بلا bonding) لتفادي وميض "undefined"
+      if(!d || !d.bonding){ throw new Error('partial'); }
+      _statusFail=0; _lastGood=d; renderStatus(d);
+    }).catch(function(){
+      _statusFail++;
+      // فشل/تأخّر عابر: أبقِ آخر حالة سليمة بدل إنذار كاذب
+      if(_statusFail<3 && _lastGood){ return; }
+      $('oc-title').textContent='تعذّر الاتصال';
+    });
+  }
 
   function setSelectValue(id, val){
     var el=$(id); if(!el || val==null || val==='') return;
@@ -760,27 +844,80 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       if($('oc-updMsg')) $('oc-updMsg').textContent='فشل التحقق من التحديثات';
     });
   }
-  $('oc-check').onclick=function(){ checkUpdates(false); };
-  $('oc-update').onclick=function(){
-    if(busy) return; busy=true;
-    var btn=$('oc-update'); btn.disabled=true;
-    if($('oc-updMsg')) $('oc-updMsg').textContent='جاري التحميل والتثبيت… لا تغلق الصفحة';
+  function fmtUptime(s){ s=parseInt(s||0,10); var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60); var o=''; if(d)o+=d+'ي '; if(h||d)o+=h+'س '; return o+m+'د'; }
+  function fmtKB(kb){ kb=parseInt(kb||0,10); if(kb>=1048576) return (kb/1048576).toFixed(1)+' GB'; if(kb>=1024) return (kb/1024).toFixed(0)+' MB'; return kb+' KB'; }
+  function usageBar(used,total){ used=parseInt(used||0,10); total=parseInt(total||0,10); var p=total>0?Math.round(used*100/total):0; if(p>100)p=100; var cls=p>=90?'bad':(p>=70?'warn':'ok'); return '<div class="dv-bar"><span class="'+cls+'" style="width:'+p+'%"></span></div><div class="dv-barlbl">'+p+'%</div>'; }
+  function loadSysinfo(){
+    $('dv-specs').innerHTML='جاري القراءة…';
+    api('sysinfo').then(function(d){
+      if(!d||!d.ok){ $('dv-specs').innerHTML='<p>تعذّر جلب المواصفات</p>'; return; }
+      $('dv-mem').innerHTML='<div class="dv-usehdr">الذاكرة: '+fmtKB(d.mem_used)+' / '+fmtKB(d.mem_total)+'</div>'+usageBar(d.mem_used,d.mem_total);
+      $('dv-disk').innerHTML='<div class="dv-usehdr">القرص (/): '+fmtKB(d.disk_used)+' / '+fmtKB(d.disk_total)+'</div>'+usageBar(d.disk_used,d.disk_total);
+      var cpu=(d.cpu||'—'); if(d.cores) cpu+=' × '+d.cores; if(d.mhz) cpu+=' @ '+d.mhz+'MHz';
+      var rows=[
+        ['الطراز', d.model||'—'],
+        ['المضيف', d.host||'—'],
+        ['النظام', d.os||'—'],
+        ['النواة', d.kernel||'—'],
+        ['المعمارية', d.arch||'—'],
+        ['المعالج', cpu],
+        ['متوسط الحِمل', d.load||'—'],
+        ['مدة التشغيل', fmtUptime(d.uptime)],
+        ['الحرارة', d.temp? (d.temp+'°C'):'—'],
+        ['جدولة MPTCP', (d.scheduler||'—')+(d.mptcp==='1'?' (مُفعّل)':'')],
+        ['عدد الوصلات', (d.wan_count!=null?d.wan_count:'—')+' وصلة · '+(d.dev_count!=null?d.dev_count:'—')+' جهاز شبكي'],
+        ['إصدار اللوحة', d.dash_version||'—']
+      ];
+      var html='<table class="oc-table dv-table"><tbody>';
+      rows.forEach(function(r){ html+='<tr><th>'+r[0]+'</th><td>'+String(r[1])+'</td></tr>'; });
+      html+='</tbody></table>';
+      $('dv-specs').innerHTML=html;
+      $('dv-curVer').textContent=d.dash_version||'—';
+    }).catch(function(){ $('dv-specs').innerHTML='<p>تعذّر الاتصال بالجهاز</p>'; });
+  }
+  function dvCheck(silent){
+    $('dv-remoteVer').textContent='...';
+    $('dv-updMsg').textContent=silent?'':'جاري التحقق عبر GitHub…';
+    return api('version').then(function(d){
+      $('dv-curVer').textContent=d.local||'—';
+      $('dv-remoteVer').textContent=d.remote||'؟';
+      var avail=!!(d.update_available||(d.remote&&d.local&&d.remote!==d.local));
+      if(!d.remote) $('dv-updMsg').textContent='تعذّر الوصول إلى GitHub — جرّب لاحقاً.';
+      else if(avail) $('dv-updMsg').textContent='تحديث متوفر: '+d.remote+' (الحالي '+d.local+')';
+      else $('dv-updMsg').textContent='أنت على أحدث إصدار.';
+      if(!silent){ if(avail) toast('تحديث متوفر: '+d.remote); else if(d.remote) toast('أحدث إصدار'); }
+      return d;
+    }).catch(function(){ $('dv-remoteVer').textContent='فشل'; $('dv-updMsg').textContent='فشل التحقق من التحديثات'; });
+  }
+  // تحديث موحّد يتحمّل انقطاع الاتصال الناتج عن إعادة تشغيل خادم الويب بعد التثبيت:
+  // بدل إعلان الفشل فوراً، نتحقّق عبر نداء version حتى يعود الخادم ثم نعتبرها ناجحة.
+  function setUpdMsg(m){ if($('dv-updMsg')) $('dv-updMsg').textContent=m; if($('oc-updMsg')) $('oc-updMsg').textContent=m; }
+  function runUpdate(btn){
+    if(busy) return; busy=true; if(btn) btn.disabled=true;
+    setUpdMsg('جاري التحميل والتثبيت… قد يعيد الخادم التشغيل، لا تغلق الصفحة');
     toast('جاري التحديث…');
+    var done=false;
+    function finish(ver){ if(done) return; done=true; setUpdMsg('تم التثبيت'+(ver?': '+ver:'')+' — إعادة تحميل…'); toast('تم التحديث'+(ver?' إلى '+ver:'')); setTimeout(function(){ location.reload(true); }, 1500); }
+    function verify(tries){
+      if(done) return;
+      if(tries<=0){ setUpdMsg('انتهت المحاولة — حدّث الصفحة يدوياً للتأكد من الإصدار.'); busy=false; if(btn) btn.disabled=false; return; }
+      api('version').then(function(d){ finish(d&&d.local); }).catch(function(){ setTimeout(function(){ verify(tries-1); }, 3000); });
+    }
     api('update').then(function(d){
-      if(!d.ok){
-        toast('فشل التحديث');
-        if($('oc-updMsg')) $('oc-updMsg').textContent=(d.error||'فشل')+(d.log?(' — '+String(d.log).slice(0,180)):'');
-        busy=false; btn.disabled=false; return;
-      }
-      toast('تم التحديث إلى '+(d.version||''));
-      if($('oc-updMsg')) $('oc-updMsg').textContent='تم التثبيت: '+ (d.version||'') +' — إعادة تحميل…';
-      setTimeout(function(){ location.reload(true); }, 2000);
+      if(d && d.ok){ finish(d.version); return; }
+      if(d && d.ok===false){ toast('فشل التحديث'); setUpdMsg((d.error||'فشل')+(d.log?(' — '+String(d.log).slice(0,180)):'')); busy=false; if(btn) btn.disabled=false; return; }
+      verify(8);
     }).catch(function(){
-      toast('فشل التحديث (انتهت المهلة أو الشبكة)');
-      if($('oc-updMsg')) $('oc-updMsg').textContent='فشل الاتصال أثناء التحديث';
-      busy=false; btn.disabled=false;
+      // انقطع الاتصال غالباً لأن الخادم أُعيد تشغيله بعد نجاح التثبيت — نتحقّق عبر الإصدار
+      setUpdMsg('أُعيد تشغيل الخادم بعد التثبيت — جارٍ التحقّق…');
+      setTimeout(function(){ verify(8); }, 3000);
     });
-  };
+  }
+  $('dv-refresh').onclick=function(){ loadSysinfo(); dvCheck(true); };
+  $('dv-check').onclick=function(){ dvCheck(false); };
+  $('dv-update').onclick=function(){ runUpdate($('dv-update')); };
+  $('oc-check').onclick=function(){ checkUpdates(false); };
+  $('oc-update').onclick=function(){ runUpdate($('oc-update')); };
 
   function doSetServer(mode){
     if(busy) return;

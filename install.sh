@@ -1,6 +1,6 @@
 #!/bin/sh
 # OMR Connect installer / updater - patches the BASE LuCI system
-# Prefer VPS mirror when GitHub is unreachable from the router.
+# Fetch from GitHub first (freshest), then jsDelivr, then VPS mirror as last resort.
 RAW_VPS="${OMR_OTA_VPS:-http://191.218.161.141:8088}"
 RAW_GH="https://raw.githubusercontent.com/mmlktahmd4-cmd/omr-dashboard/main"
 RAW_CDN="https://cdn.jsdelivr.net/gh/mmlktahmd4-cmd/omr-dashboard@main"
@@ -11,7 +11,7 @@ fetch() {
 }
 fetch_any() {
   rel="$1"
-  for b in "$RAW_VPS" "$RAW_GH" "$RAW_CDN"; do
+  for b in "$RAW_GH" "$RAW_CDN" "$RAW_VPS"; do
     if fetch "$b/$rel"; then return 0; fi
   done
   return 1

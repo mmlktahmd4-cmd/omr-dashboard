@@ -453,6 +453,19 @@ body.omr-connect input[type="checkbox"]{
   opacity:0; transition:.2s; pointer-events:none; z-index:99;
 }
 .oc-toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+/* device specs panel */
+.dv-usage{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:0 0 14px; }
+.dv-usebox{ background:#f4f7fb; border:1px solid var(--line2); border-radius:8px; padding:12px; }
+.dv-usehdr{ font-size:12.5px; color:var(--mut); margin-bottom:8px; font-weight:700; }
+.dv-bar{ height:12px; background:#e3e9f1; border-radius:6px; overflow:hidden; }
+.dv-bar span{ display:block; height:100%; border-radius:6px; transition:width .4s ease; }
+.dv-bar span.ok{ background:#22a06b; }
+.dv-bar span.warn{ background:#e0952b; }
+.dv-bar span.bad{ background:#d64545; }
+.dv-barlbl{ text-align:end; font-size:11.5px; color:var(--mut); margin-top:4px; }
+.dv-table th{ width:38%; white-space:nowrap; }
+.dv-table td{ word-break:break-word; }
+@media (max-width:700px){ .dv-usage{ grid-template-columns:1fr; } }
 .oc-cardbtns{ display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
 .oc-cardbtns .oc-btn{ padding:6px 10px; font-size:12px; }
 .oc-spin{ width:13px; height:13px; border:2px solid rgba(255,255,255,.35); border-top-color:#fff; border-radius:50%; animation:ocsp .7s linear infinite; display:inline-block; }
@@ -477,4 +490,246 @@ body.omr-connect input[type="checkbox"]{
     width:100% !important;
   }
   body.omr-connect #maincontent.container{ padding:12px 10px 28px !important; }
+}
+
+/* ============================================================
+   OMR Connect — "Command Center" dashboard theme
+   Scoped to .oc-app so native LuCI pages keep the light theme.
+   Pure visual layer over existing markup/IDs (backend untouched).
+   ============================================================ */
+body.omr-connect .oc-app{
+  --c-bg1:#0a1422; --c-bg2:#0d1e34; --c-bg3:#0b1830;
+  --c-card:rgba(255,255,255,.045);
+  --c-brd:rgba(140,180,235,.14);
+  --c-txt:#e8f0fb; --c-mut:#93a7c4; --c-mut2:#6f849f;
+  --c-acc:#39c0ff; --c-acc2:#2f7bff; --c-acc3:#7b5cff;
+  --c-ok:#2fe08a; --c-warn:#ffc24b; --c-bad:#ff5d6c;
+  position:relative; direction:rtl;
+  margin:2px 0 12px; padding:18px; border-radius:18px; color:var(--c-txt);
+  background:
+    radial-gradient(1200px 520px at 100% -20%, rgba(57,192,255,.10), transparent 60%),
+    radial-gradient(900px 520px at -10% 0%, rgba(123,92,255,.10), transparent 55%),
+    linear-gradient(160deg, var(--c-bg1), var(--c-bg2) 55%, var(--c-bg3));
+  border:1px solid rgba(120,160,220,.18);
+  box-shadow:0 24px 70px rgba(3,10,22,.55), inset 0 1px 0 rgba(255,255,255,.05);
+  overflow:hidden;
+}
+body.omr-connect .oc-app::before{
+  content:""; position:absolute; inset:-2px; z-index:0; pointer-events:none;
+  background:radial-gradient(700px 220px at 50% -50px, rgba(57,192,255,.16), transparent 70%);
+}
+body.omr-connect .oc-app > *{ position:relative; z-index:1; }
+
+/* top bar */
+body.omr-connect .oc-app .oc-topbar{ display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px; }
+body.omr-connect .oc-app .oc-brandline{ display:flex;align-items:center;gap:12px; }
+body.omr-connect .oc-app .oc-logo{
+  width:44px;height:44px;border-radius:13px;display:grid;place-items:center;
+  font-weight:900;font-size:14px;letter-spacing:.5px;color:#04121f;
+  background:linear-gradient(135deg,var(--c-acc),var(--c-acc2));
+  box-shadow:0 8px 20px rgba(47,123,255,.45), inset 0 1px 0 rgba(255,255,255,.45);
+}
+body.omr-connect .oc-app .oc-appname{ font-size:16px;font-weight:800;color:#fff; }
+body.omr-connect .oc-app .oc-apptag{ font-size:11.5px;color:var(--c-mut); }
+body.omr-connect .oc-app .oc-livedot{
+  display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--c-mut);
+  background:rgba(255,255,255,.05);border:1px solid var(--c-brd);padding:7px 13px;border-radius:999px;
+}
+body.omr-connect .oc-app .oc-livedot span{ width:8px;height:8px;border-radius:50%;background:var(--c-ok);animation:ocpulse 1.8s infinite; }
+@keyframes ocpulse{ 0%{box-shadow:0 0 0 0 rgba(47,224,138,.55)} 70%{box-shadow:0 0 0 8px rgba(47,224,138,0)} 100%{box-shadow:0 0 0 0 rgba(47,224,138,0)} }
+
+/* tabs -> segmented pill bar */
+body.omr-connect .oc-app .oc-tabs{
+  display:flex;flex-wrap:wrap;gap:4px;border:1px solid var(--c-brd);margin:0 0 16px;
+  background:rgba(255,255,255,.04);padding:5px;border-radius:14px;
+}
+body.omr-connect .oc-app .oc-tab{
+  border:0;background:transparent;color:var(--c-mut);margin:0;
+  padding:9px 15px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:.18s;
+}
+body.omr-connect .oc-app .oc-tab:hover{ color:var(--c-txt);background:rgba(255,255,255,.06); }
+body.omr-connect .oc-app .oc-tab.active{
+  color:#04121f;background:linear-gradient(135deg,var(--c-acc),var(--c-acc2));border-bottom:0;
+  box-shadow:0 6px 16px rgba(47,123,255,.4);
+}
+
+/* panel transition */
+body.omr-connect .oc-app .oc-panel.active{ animation:ocfade .35s ease; }
+@keyframes ocfade{ from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+/* hero banner */
+body.omr-connect .oc-app .oc-hero{
+  position:relative;overflow:hidden;
+  background:linear-gradient(120deg, rgba(47,123,255,.20), rgba(123,92,255,.15) 55%, rgba(57,192,255,.13));
+  border:1px solid rgba(140,180,235,.24);border-radius:16px;padding:18px 20px;margin:0 0 12px;
+  display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  box-shadow:0 12px 40px rgba(4,12,26,.4), inset 0 1px 0 rgba(255,255,255,.06);
+}
+body.omr-connect .oc-app .oc-hero-bg{
+  position:absolute;inset:-40% -10%;z-index:0;pointer-events:none;opacity:.5;
+  background:conic-gradient(from 0deg at 20% 50%, rgba(57,192,255,0), rgba(57,192,255,.28), rgba(123,92,255,0) 42%);
+  animation:ocspin 16s linear infinite;
+}
+@keyframes ocspin{ to{ transform:rotate(360deg);} }
+body.omr-connect .oc-app .oc-hero > *{ position:relative;z-index:1; }
+body.omr-connect .oc-app .oc-hero .state{ display:flex;align-items:center;gap:14px; }
+body.omr-connect .oc-app .oc-hero h2{ margin:0 0 3px;font-size:21px;font-weight:800;color:#fff !important; }
+body.omr-connect .oc-app .oc-hero p{ margin:0;color:#c9d8ee;font-size:13px; }
+
+/* status orb */
+body.omr-connect .oc-app .oc-orb{
+  width:62px;height:62px;border-radius:50%;display:grid;place-items:center;font-size:27px;font-weight:800;border:0;position:relative;
+}
+body.omr-connect .oc-app .oc-orb::after{
+  content:"";position:absolute;inset:-6px;border-radius:50%;border:2px solid currentColor;opacity:.4;animation:ocring 2.4s ease-out infinite;
+}
+@keyframes ocring{ 0%{transform:scale(.82);opacity:.5} 100%{transform:scale(1.45);opacity:0} }
+body.omr-connect .oc-app .oc-orb.ok{ background:radial-gradient(circle at 35% 30%, #4dffa8, #0f9b57);color:#e9fff4;box-shadow:0 0 34px rgba(47,224,138,.55); }
+body.omr-connect .oc-app .oc-orb.warn{ background:radial-gradient(circle at 35% 30%, #ffd679, #cf8f12);color:#3a2600;box-shadow:0 0 34px rgba(255,194,75,.5); }
+body.omr-connect .oc-app .oc-orb.bad{ background:radial-gradient(circle at 35% 30%, #ff8a95, #c02636);color:#fff;box-shadow:0 0 34px rgba(255,93,108,.55); }
+
+/* hero stat chips */
+body.omr-connect .oc-app .oc-hero-stats{ display:flex;gap:10px;flex-wrap:wrap; }
+body.omr-connect .oc-app .oc-stat{
+  background:rgba(3,12,26,.42);border:1px solid rgba(140,180,235,.2);border-radius:12px;
+  padding:9px 15px;min-width:96px;text-align:center;
+}
+body.omr-connect .oc-app .oc-stat .lbl{ display:block;font-size:10.5px;color:#a8bcd8;margin-bottom:3px; }
+body.omr-connect .oc-app .oc-stat b{ font-size:15px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums; }
+
+/* bonding flow diagram */
+body.omr-connect .oc-app .oc-flow{
+  display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;
+  background:rgba(255,255,255,.03);border:1px solid var(--c-brd);border-radius:14px;padding:12px;margin:0 0 12px;
+}
+body.omr-connect .oc-app .fl-stage{ display:flex;gap:8px;align-items:center;flex-wrap:wrap; }
+body.omr-connect .oc-app .fl-node,
+body.omr-connect .oc-app .fl-core{
+  min-width:84px;text-align:center;border-radius:12px;padding:9px 11px;
+  background:rgba(3,12,26,.5);border:1px solid rgba(140,180,235,.18);
+}
+body.omr-connect .oc-app .fl-core{ background:linear-gradient(135deg, rgba(47,123,255,.3), rgba(123,92,255,.22));border-color:rgba(120,160,255,.42); }
+body.omr-connect .oc-app .fl-ic{ font-size:18px;display:block;margin-bottom:2px;line-height:1; }
+body.omr-connect .oc-app .fl-nm{ font-size:12px;font-weight:800;color:#eaf2ff; }
+body.omr-connect .oc-app .fl-sub{ font-size:10.5px;color:#a8bcd8;margin-top:1px; }
+body.omr-connect .oc-app .fl-node.ok{ border-color:rgba(47,224,138,.5);box-shadow:inset 0 0 16px rgba(47,224,138,.16); }
+body.omr-connect .oc-app .fl-node.warn{ border-color:rgba(255,194,75,.5); }
+body.omr-connect .oc-app .fl-node.bad{ border-color:rgba(255,93,108,.45);opacity:.85; }
+body.omr-connect .oc-app .fl-link{
+  flex:1;min-width:24px;height:3px;align-self:center;border-radius:3px;overflow:hidden;
+  background:linear-gradient(90deg, rgba(57,192,255,.12), rgba(57,192,255,.55), rgba(57,192,255,.12));
+  background-size:200% 100%;animation:ocdata 1.4s linear infinite;
+}
+@keyframes ocdata{ from{background-position:200% 0} to{background-position:-200% 0} }
+
+/* cards */
+body.omr-connect .oc-app .oc-card{
+  background:var(--c-card) !important;border:1px solid var(--c-brd) !important;border-radius:14px !important;
+  box-shadow:0 8px 24px rgba(4,12,26,.28) !important;overflow:hidden;margin:0 0 12px;backdrop-filter:blur(6px);
+}
+body.omr-connect .oc-app .oc-card > h3{
+  background:rgba(255,255,255,.04) !important;border-bottom:1px solid var(--c-brd) !important;
+  color:#eaf2ff !important;font-size:13.5px !important;padding:12px 16px !important;
+}
+body.omr-connect .oc-app .oc-card .oc-body{ padding:16px !important; }
+body.omr-connect .oc-app .oc-meta{ color:var(--c-mut) !important; }
+
+/* KPI mini cards */
+body.omr-connect .oc-app .oc-grid{ grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px; }
+body.omr-connect .oc-app .oc-mini{
+  position:relative;background:var(--c-card) !important;border:1px solid var(--c-brd) !important;border-radius:14px !important;
+  padding:14px !important;box-shadow:0 8px 24px rgba(4,12,26,.28) !important;overflow:hidden;backdrop-filter:blur(6px);
+  transition:transform .18s, box-shadow .18s, border-color .18s;
+}
+body.omr-connect .oc-app .oc-mini::before{
+  content:"";position:absolute;top:0;inset-inline:0;height:3px;
+  background:linear-gradient(90deg,var(--c-acc),var(--c-acc3));opacity:.9;
+}
+body.omr-connect .oc-app .oc-mini:hover{ transform:translateY(-3px);box-shadow:0 16px 38px rgba(4,12,26,.45) !important;border-color:rgba(140,180,235,.35) !important; }
+body.omr-connect .oc-app .oc-mini h4{ color:#eaf2ff !important;font-size:13.5px;margin:0 0 10px; }
+body.omr-connect .oc-app .oc-row{ font-size:12.5px;padding:3px 0;margin:0; }
+body.omr-connect .oc-app .oc-row span:first-child{ color:var(--c-mut) !important; }
+body.omr-connect .oc-app .oc-row b,
+body.omr-connect .oc-app .oc-row span{ color:var(--c-txt); }
+
+/* status dots + pills (glow) */
+body.omr-connect .oc-app .oc-dot{ box-shadow:0 0 8px currentColor; }
+body.omr-connect .oc-app .oc-dot.ok{ background:var(--c-ok);color:var(--c-ok); }
+body.omr-connect .oc-app .oc-dot.bad{ background:var(--c-bad);color:var(--c-bad); }
+body.omr-connect .oc-app .oc-dot.warn{ background:var(--c-warn);color:var(--c-warn); }
+body.omr-connect .oc-app .oc-pill{ backdrop-filter:blur(4px); }
+body.omr-connect .oc-app .oc-pill.ok{ background:rgba(47,224,138,.16) !important;color:#7dffbe !important; }
+body.omr-connect .oc-app .oc-pill.bad{ background:rgba(255,93,108,.16) !important;color:#ff9aa4 !important; }
+body.omr-connect .oc-app .oc-pill.warn{ background:rgba(255,194,75,.16) !important;color:#ffd98a !important; }
+
+/* alerts */
+body.omr-connect .oc-app .oc-alert{ border-radius:12px;backdrop-filter:blur(4px); }
+body.omr-connect .oc-app .oc-alert.ok{ background:rgba(47,224,138,.1);border-color:rgba(47,224,138,.35);color:#cffee6; }
+body.omr-connect .oc-app .oc-alert.warn{ background:rgba(255,194,75,.1);border-color:rgba(255,194,75,.35);color:#ffe9bd; }
+body.omr-connect .oc-app .oc-alert.bad{ background:rgba(255,93,108,.1);border-color:rgba(255,93,108,.35);color:#ffd2d6; }
+body.omr-connect .oc-app .oc-alert b{ color:#fff; }
+
+/* forms + inputs (dark) */
+body.omr-connect .oc-app label,
+body.omr-connect .oc-app .oc-field label{ color:var(--c-mut) !important; }
+body.omr-connect .oc-app .oc-help{ color:var(--c-mut2) !important; }
+body.omr-connect .oc-app input[type="text"],
+body.omr-connect .oc-app input[type="password"],
+body.omr-connect .oc-app input[type="number"],
+body.omr-connect .oc-app select,
+body.omr-connect .oc-app textarea{
+  background:rgba(3,12,26,.55) !important;border:1px solid rgba(140,180,235,.22) !important;color:var(--c-txt) !important;
+  border-radius:10px !important;min-height:38px !important;box-shadow:none !important;
+}
+body.omr-connect .oc-app input::placeholder{ color:#6f849f; }
+body.omr-connect .oc-app input:focus,
+body.omr-connect .oc-app select:focus,
+body.omr-connect .oc-app textarea:focus{
+  border-color:var(--c-acc) !important;box-shadow:0 0 0 3px rgba(57,192,255,.2) !important;
+}
+body.omr-connect .oc-app input[readonly]{ opacity:.7; }
+body.omr-connect .oc-app select option{ background:#0d1e34;color:var(--c-txt); }
+body.omr-connect .oc-app .oc-actions{ border-top:1px solid var(--c-brd); }
+
+/* buttons */
+body.omr-connect .oc-app .oc-btn{
+  background:linear-gradient(135deg,var(--c-acc),var(--c-acc2)) !important;border:0 !important;color:#04121f !important;
+  border-radius:10px !important;font-weight:800 !important;padding:9px 16px !important;min-height:38px;
+  box-shadow:0 8px 20px rgba(47,123,255,.32) !important;transition:transform .15s, box-shadow .15s, filter .15s;
+}
+body.omr-connect .oc-app .oc-btn:hover{ transform:translateY(-2px);filter:brightness(1.06);box-shadow:0 12px 28px rgba(47,123,255,.5) !important; }
+body.omr-connect .oc-app .oc-btn.ghost{
+  background:rgba(255,255,255,.06) !important;border:1px solid var(--c-brd) !important;color:var(--c-txt) !important;box-shadow:none !important;
+}
+body.omr-connect .oc-app .oc-btn.ghost:hover{ background:rgba(255,255,255,.12) !important; }
+body.omr-connect .oc-app a.oc-btn.ghost{ color:var(--c-txt) !important; }
+body.omr-connect .oc-app .oc-cardbtns .oc-btn{ padding:6px 11px !important;font-size:12px !important; }
+
+/* tables */
+body.omr-connect .oc-app .oc-table th{ background:rgba(255,255,255,.04) !important;color:var(--c-mut) !important;border-bottom:1px solid var(--c-brd) !important; }
+body.omr-connect .oc-app .oc-table td{ color:var(--c-txt) !important;border-bottom:1px solid rgba(140,180,235,.1) !important; }
+body.omr-connect .oc-app .oc-table tr:hover td{ background:rgba(255,255,255,.03) !important; }
+
+/* device usage bars */
+body.omr-connect .oc-app .dv-usebox{ background:rgba(3,12,26,.45) !important;border:1px solid var(--c-brd) !important; }
+body.omr-connect .oc-app .dv-usehdr{ color:var(--c-mut) !important; }
+body.omr-connect .oc-app .dv-bar{ background:rgba(255,255,255,.08) !important; }
+body.omr-connect .oc-app .dv-bar span.ok{ background:linear-gradient(90deg,#2fe08a,#12b56a) !important; }
+body.omr-connect .oc-app .dv-bar span.warn{ background:linear-gradient(90deg,#ffce6a,#e0952b) !important; }
+body.omr-connect .oc-app .dv-bar span.bad{ background:linear-gradient(90deg,#ff8a95,#d64545) !important; }
+body.omr-connect .oc-app .dv-barlbl{ color:var(--c-mut) !important; }
+
+/* generic text + links inside app */
+body.omr-connect .oc-app h3,
+body.omr-connect .oc-app h4,
+body.omr-connect .oc-app b,
+body.omr-connect .oc-app li,
+body.omr-connect .oc-app ol{ color:var(--c-txt) !important; }
+body.omr-connect .oc-app a{ color:var(--c-acc) !important; }
+
+@media (max-width:760px){
+  body.omr-connect .oc-app{ padding:12px;border-radius:14px; }
+  body.omr-connect .oc-app .oc-hero{ padding:16px; }
+  body.omr-connect .oc-app .oc-hero-stats{ width:100%; }
+  body.omr-connect .oc-app .oc-hero .oc-btn{ width:100%; }
 }

@@ -44,11 +44,12 @@ fetch() {
   if command -v curl >/dev/null 2>&1; then curl -4 -fsSL -m 20 "$1"
   else uclient-fetch -q -T 20 -O - "$1"; fi
 }
-# Try VPS mirror first (reachable when GitHub is blocked), then GitHub, then jsDelivr
+# نجلب من GitHub أولاً (المصدر الأحدث)، ثم jsDelivr، ثم مِرآة الـVPS كملاذ أخير.
+# مِرآة الـVPS قد تتأخّر في المزامنة فنجعلها آخر خيار حتى لا نجلب نسخة قديمة.
 ota_get() {
   # $1 = relative path e.g. VERSION or install.sh
   _rel="$1"
-  for _base in "$OTA_VPS" "$OTA_GITHUB" "$OTA_JSDELIVR"; do
+  for _base in "$OTA_GITHUB" "$OTA_JSDELIVR" "$OTA_VPS"; do
     if fetch "$_base/$_rel" 2>/dev/null; then
       return 0
     fi
@@ -71,6 +72,36 @@ ping_ms() {
 }
 ok_json() { printf '{"ok":true,"a":"%s"%s}' "$1" "${2:-}"; }
 err_json() { printf '{"ok":false,"error":%s%s}' "$(json_str "$1")" "${2:-}"; }
+
+# Fix Shadowsocks path: LAN clients must use sss0 (VPS IP), never broken mptcpovervpn 10.255.247.1
+fix_ss_path() {
+  _ssh="$1"
+  [ -z "$_ssh" ] && _ssh=$(uci -q get openmptcprouter.vps.ip | awk '{print $1}')
+  [ -z "$_ssh" ] && _ssh=$(uci -q get glorytun-udp.vpn.host)
+  [ -n "$_ssh" ] && uci set shadowsocks-rust.sss0.server="$_ssh"
+  uci set shadowsocks-rust.sss0.disabled='0'
+  uci -q set shadowsocks-rust.sss0.server_port="$(uci -q get shadowsocks-rust.sss0.server_port)"
+  [ -z "$(uci -q get shadowsocks-rust.sss0.server_port)" ] && uci set shadowsocks-rust.sss0.server_port='65280'
+  # disable broken over-vpn internal endpoint
+  uci -q set shadowsocks-rust.mptcpovervpn.disabled='1'
+  uci -q set shadowsocks-rust.hivpn.disabled='1'
+  uci -q set shadowsocks-rust.hi2.disabled='1'
+  # enable working redir for nft redirect :1101
+  uci set shadowsocks-rust.hi1=ss_redir
+  uci set shadowsocks-rust.hi1.server='sss0'
+  uci set shadowsocks-rust.hi1.local_address='0.0.0.0'
+  uci set shadowsocks-rust.hi1.local_port='1101'
+  uci set shadowsocks-rust.hi1.mode='tcp_and_udp'
+  uci set shadowsocks-rust.hi1.disabled='0'
+  uci set shadowsocks-rust.ss_rules.disabled='0'
+  uci set shadowsocks-rust.ss_rules.server='sss0'
+  uci set shadowsocks-rust.ss_rules.redir_tcp='all'
+  uci set shadowsocks-rust.ss_rules.src_default='forward'
+  uci set shadowsocks-rust.ss_rules.dst_default='forward'
+  uci set shadowsocks-rust.ss_rules.local_default='forward'
+  uci set openmptcprouter.settings.mptcpovervpn='none'
+  uci set openmptcprouter.settings.proxy='shadowsocks-rust'
+}
 
 # ---------- WAN discovery (new USB/eth → wanN with OMR basic path) ----------
 lan_device() {
@@ -257,6 +288,69 @@ dev_assigned_wan() {
   printf ''
 }
 
+# ---------- device specs (hardware) ----------
+sysinfo_json() {
+  _board=$(ubus call system board 2>/dev/null)
+  _model=$(printf '%s' "$_board" | sed -n 's/.*"model": *"\([^"]*\)".*/\1/p' | head -1)
+  [ -z "$_model" ] && _model=$(cat /tmp/sysinfo/model 2>/dev/null)
+  _kernel=$(printf '%s' "$_board" | sed -n 's/.*"kernel": *"\([^"]*\)".*/\1/p' | head -1)
+  [ -z "$_kernel" ] && _kernel=$(uname -r)
+  _osrel=$(printf '%s' "$_board" | sed -n 's/.*"description": *"\([^"]*\)".*/\1/p' | head -1)
+  [ -z "$_osrel" ] && _osrel=$( (. /etc/openwrt_release 2>/dev/null; printf '%s' "$DISTRIB_DESCRIPTION") )
+  _arch=$(uname -m)
+  _host=$(uci -q get system.@system[0].hostname); [ -z "$_host" ] && _host=$(cat /proc/sys/kernel/hostname 2>/dev/null)
+
+  _cpu=$(sed -n 's/^model name[[:space:]]*: *//p' /proc/cpuinfo | head -1)
+  [ -z "$_cpu" ] && _cpu=$(sed -n 's/^system type[[:space:]]*: *//p' /proc/cpuinfo | head -1)
+  [ -z "$_cpu" ] && _cpu=$(sed -n 's/^cpu model[[:space:]]*: *//p' /proc/cpuinfo | head -1)
+  _cores=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null); [ -z "$_cores" ] || [ "$_cores" = "0" ] && _cores=1
+  _mhz=$(sed -n 's/^cpu MHz[[:space:]]*: *\([0-9]*\).*/\1/p' /proc/cpuinfo | head -1)
+
+  _load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)
+  _up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1); [ -z "$_up" ] && _up=0
+
+  _memt=$(sed -n 's/^MemTotal:[[:space:]]*\([0-9]*\).*/\1/p' /proc/meminfo)
+  _mema=$(sed -n 's/^MemAvailable:[[:space:]]*\([0-9]*\).*/\1/p' /proc/meminfo)
+  [ -z "$_mema" ] && _mema=$(sed -n 's/^MemFree:[[:space:]]*\([0-9]*\).*/\1/p' /proc/meminfo)
+  _memt=${_memt:-0}; _mema=${_mema:-0}; _memu=$((_memt-_mema))
+
+  _dfline=$(df -k / 2>/dev/null | awk 'NR==2{print $2" "$3" "$4}')
+  _dtot=$(printf '%s' "$_dfline" | awk '{print $1}'); _dused=$(printf '%s' "$_dfline" | awk '{print $2}'); _dfree=$(printf '%s' "$_dfline" | awk '{print $3}')
+  _dtot=${_dtot:-0}; _dused=${_dused:-0}; _dfree=${_dfree:-0}
+
+  _temp=""
+  for _tz in /sys/class/thermal/thermal_zone*/temp; do
+    [ -f "$_tz" ] || continue
+    _tv=$(cat "$_tz" 2>/dev/null)
+    case "$_tv" in ''|*[!0-9]*) : ;; *) _temp=$((_tv/1000)); break ;; esac
+  done
+
+  _sched=$(sysctl -n net.mptcp.scheduler 2>/dev/null)
+  _mptcp_en=$(sysctl -n net.mptcp.enabled 2>/dev/null)
+  _nwan=$(printf '%s\n' $WANS | grep -c . 2>/dev/null); [ -z "$_nwan" ] && _nwan=0
+  _ndev=$(ls /sys/class/net 2>/dev/null | grep -Ec '^(eth|usb|wwan|wlan)'); [ -z "$_ndev" ] && _ndev=0
+
+  printf '{"ok":true,'
+  printf '"model":%s,' "$(json_str "$_model")"
+  printf '"host":%s,' "$(json_str "$_host")"
+  printf '"os":%s,' "$(json_str "$_osrel")"
+  printf '"kernel":%s,' "$(json_str "$_kernel")"
+  printf '"arch":%s,' "$(json_str "$_arch")"
+  printf '"cpu":%s,' "$(json_str "$_cpu")"
+  printf '"cores":%s,' "${_cores:-1}"
+  printf '"mhz":"%s",' "$_mhz"
+  printf '"load":"%s",' "$_load"
+  printf '"uptime":%s,' "${_up:-0}"
+  printf '"mem_total":%s,"mem_used":%s,"mem_avail":%s,' "$_memt" "$_memu" "$_mema"
+  printf '"disk_total":%s,"disk_used":%s,"disk_free":%s,' "$_dtot" "$_dused" "$_dfree"
+  printf '"temp":"%s",' "$_temp"
+  printf '"scheduler":%s,' "$(json_str "$_sched")"
+  printf '"mptcp":"%s",' "$_mptcp_en"
+  printf '"wan_count":%s,"dev_count":%s,' "${_nwan:-0}" "${_ndev:-0}"
+  printf '"dash_version":%s' "$(json_str "$LOCAL_VER")"
+  printf '}'
+}
+
 # ---------- status ----------
 status_json() {
   discover_wans 0
@@ -276,11 +370,25 @@ status_json() {
     [ -z "$_gw" ] && _gw=$(uci -q get network."$w".gateway)
     _mp=$(uci -q get network."$w".multipath)
     _link=false; _speed=""
-    if [ -n "$_dev" ]; then
-      _et=$(ethtool "$_dev" 2>/dev/null)
-      printf '%s' "$_et" | grep -q "Link detected: yes" && _link=true
+    # للكشف عن الرابط: واجهات PPPoE افتراضية (pppoe-wanX) لا يفهمها ethtool،
+    # لذا نفحص الجهاز الفيزيائي الأساسي (ethX) الذي يعمل فوقه PPPoE
+    _pdev="$_dev"
+    case "$_proto" in
+      pppoe|pppoa|ppp) _pdev=$(uci -q get network."$w".device); [ -z "$_pdev" ] && _pdev="$_dev" ;;
+    esac
+    if [ -n "$_pdev" ]; then
+      _et=$(ethtool "$_pdev" 2>/dev/null)
+      if printf '%s' "$_et" | grep -q "Link detected: yes"; then
+        _link=true
+      elif [ -f /sys/class/net/"$_pdev"/carrier ] && [ "$(cat /sys/class/net/"$_pdev"/carrier 2>/dev/null)" = "1" ]; then
+        _link=true
+      fi
       _speed=$(printf '%s' "$_et" | sed -n 's/.*Speed: \([0-9]*\)Mb\/s/\1/p' | head -1)
     fi
+    # PPP وأي واجهة نقطة-لنقطة: نجاح الاتصال (up) يعني أن الرابط فعّال فعلاً
+    case "$_proto" in
+      pppoe|pppoa|ppp) [ "$_up" = "true" ] && _link=true ;;
+    esac
 
     # bandwidth: compare with previous sample
     _rxr=0; _txr=0; _rxb=0; _txb=0
@@ -305,6 +413,8 @@ status_json() {
     _net=false; _lat=""; _gwlat=""
     if [ "$_up" = "true" ] && [ -n "$_dev" ] && [ "$_link" = "true" ]; then
       _lat=$(ping_ms 1.1.1.1 "$_dev")
+      # إعادة محاولة واحدة قبل اعتبار الخط بلا إنترنت (تسامح مع فقدان نبضة على مسار مرتفع الزمن)
+      [ -z "$_lat" ] && _lat=$(ping_ms 1.1.1.1 "$_dev")
       [ -n "$_lat" ] && _net=true
       [ -n "$_gw" ] && _gwlat=$(ping_ms "$_gw" "$_dev")
     fi
@@ -326,9 +436,17 @@ status_json() {
       _tunip=$(ip -4 -o addr show "$TUN_DEV" 2>/dev/null | awk '{print $4}' | head -1)
     fi
     _tl=$(ping_ms "$TUN_PEER")
+    # إعادة محاولة واحدة قبل الحكم (النفق مرتفع الزمن ومتذبذب؛ فقدان نبضة لا يعني انقطاعاً)
+    [ -z "$_tl" ] && _tl=$(ping_ms "$TUN_PEER")
     [ -n "$_tl" ] && _tunup=true
   fi
   _gtrun=false; pgrep -f glorytun-udp >/dev/null 2>&1 && _gtrun=true
+  # تسامح ضد الإنذارات الكاذبة: إذا كانت خدمة النفق شغّالة وله IP، اعتبره متصلاً
+  # حتى لو فُقد نبض الفحص (التصفح لا ينقطع فعلاً لأنه يمر عبر البروكسي/الدمج)
+  if [ "$_tunup" != "true" ] && [ "$_gtrun" = "true" ] && [ -n "$_tunip" ]; then
+    _tunup=true
+    [ -z "$_tl" ] && _tl="service"
+  fi
 
   _vl=$(ping_ms "$VPS_HOST"); _vok=false; [ -n "$_vl" ] && _vok=true
   if [ "$_vok" = "false" ] && [ -n "$VPS_HOST" ]; then
@@ -547,8 +665,9 @@ set_bond() {
   # apply profile defaults first, then honor explicit UI overrides
   case "$PROF" in
     smooth|redundant)
-      # نسخ الحماية: bpf_red يرسل نسخة على كل مسار — فصل خط لا يقطع الجلسة
-      MASTER=balancing; SCHED=bpf_red; KA=3s; FAILI=1
+      # جدولة النواة المدمجة (default) هي الوحيدة المستقرة على هذه النواة؛
+      # جدولات bpf_* تُسبّب تحذيرات/تعليق في MPTCP وتقطيع الإنترنت
+      MASTER=balancing; SCHED=default; KA=10s; FAILI=5
       for _bw in $(list_wans); do
         uci set network."$_bw".multipath='on'
         uci set network."$_bw".auto='1'
@@ -558,7 +677,7 @@ set_bond() {
       PROF=smooth
       ;;
     speed)
-      MASTER=balancing; SCHED=bpf_rr; KA=5s; FAILI=2
+      MASTER=balancing; SCHED=default; KA=10s; FAILI=5
       for _bw in $(list_wans); do
         uci set network."$_bw".multipath='on'
         uci set network."$_bw".auto='1'
@@ -567,7 +686,7 @@ set_bond() {
       done
       ;;
     failover)
-      MASTER=failover; SCHED=bpf_bkup; KA=5s; FAILI=2
+      MASTER=failover; SCHED=default; KA=10s; FAILI=5
       _bi=0
       for _bw in $(list_wans); do
         _bi=$((_bi+1))
@@ -629,9 +748,12 @@ set_bond() {
   uci set network.globals.mptcp_checksum='0'
   uci set glorytun-udp.vpn.keepalive="$KA"
   uci set omr-tracker.defaults.failure_interval="$FAILI"
-  uci set omr-tracker.defaults.timeout='1'
-  uci set omr-tracker.defaults.interval='1'
-  uci set omr-tracker.defaults.tries='2'
+  uci set omr-tracker.defaults.timeout='3'
+  uci set omr-tracker.defaults.interval='5'
+  uci set omr-tracker.defaults.interval_tries='2'
+  uci set omr-tracker.defaults.tries='3'
+  uci set omr-tracker.defaults.tries_up='3'
+  uci set omr-tracker.defaults.count='2'
   for _bw in $(list_wans); do
     uci set network."$_bw".peerdns='0'
     uci set network."$_bw".defaultroute='0'
@@ -641,6 +763,9 @@ set_bond() {
   SUBF=$(qget subflows)
   [ -n "$CONG" ] && uci set network.globals.congestion="$CONG"
   [ -n "$SUBF" ] && uci set network.globals.mptcp_subflows="$SUBF"
+
+  # prefer IPv4 on SS redir (IPv6 stalls cause cut/lag)
+  uci -q set shadowsocks-rust.hi1.ipv6_first='0'
 
   sysctl -w net.mptcp.scheduler="$SCHED" >/dev/null 2>&1 || true
   sysctl -w net.mptcp.stale_loss_cnt=2 >/dev/null 2>&1 || true
@@ -814,6 +939,7 @@ set_server() {
   fi
   fi
 
+  fix_ss_path "$HOST"
   uci commit openmptcprouter
   uci commit glorytun-udp
   uci commit shadowsocks-rust
@@ -1115,6 +1241,7 @@ set_proxy_cfg() {
     uci set shadowsocks-rust.ss_rules.dst_default='forward'
     uci set shadowsocks-rust.ss_rules.local_default='forward'
     uci set shadowsocks-rust.ss_rules.server='sss0'
+    fix_ss_path "$HOST"
   fi
 
   uci commit shadowsocks-rust
@@ -1129,10 +1256,12 @@ optimize_stack() {
   HOST=$(uci -q get openmptcprouter.vps.ip | awk '{print $1}')
   [ -z "$HOST" ] && HOST=$(uci -q get glorytun-udp.vpn.host)
 
+  # جدولة النواة المدمجة (default) هي الوحيدة المستقرة على هذه النواة؛
+  # جدولات bpf_* تُسبّب تحذيرات/تعليق في MPTCP وتقطيع الإنترنت
   case "$MODE" in
-    speed) SCHED=bpf_rr; KA=5s; FAILI=2; MASTER=balancing ;;
-    failover) SCHED=bpf_bkup; KA=5s; FAILI=2; MASTER=failover ;;
-    *) MODE=smooth; SCHED=bpf_red; KA=3s; FAILI=1; MASTER=balancing ;;
+    speed) SCHED=default; KA=10s; FAILI=5; MASTER=balancing ;;
+    failover) SCHED=default; KA=10s; FAILI=5; MASTER=failover ;;
+    *) MODE=smooth; SCHED=default; KA=10s; FAILI=5; MASTER=balancing ;;
   esac
 
   # validate scheduler
@@ -1205,21 +1334,23 @@ optimize_stack() {
     uci set shadowsocks-rust.sss0.server="$HOST"
     uci set shadowsocks-rust.sss0.server_port='65280'
     uci set shadowsocks-rust.sss0.disabled='0'
-    uci set shadowsocks-rust.ss_rules.disabled='0'
-    uci set shadowsocks-rust.ss_rules.redir_tcp='all'
-    uci set shadowsocks-rust.ss_rules.src_default='forward'
-    uci set shadowsocks-rust.ss_rules.dst_default='forward'
-    uci set shadowsocks-rust.ss_rules.local_default='forward'
-    uci set shadowsocks-rust.ss_rules.server='sss0'
+    fix_ss_path "$HOST"
   fi
 
   uci set omr-tracker.defaults.enabled='1'
   uci set omr-tracker.defaults.failure_interval="$FAILI"
-  uci set omr-tracker.defaults.timeout='1'
-  uci set omr-tracker.defaults.interval='1'
-  uci set omr-tracker.defaults.tries='2'
+  uci set omr-tracker.defaults.timeout='3'
+  uci set omr-tracker.defaults.interval='5'
+  uci set omr-tracker.defaults.interval_tries='2'
+  uci set omr-tracker.defaults.tries='3'
+  uci set omr-tracker.defaults.tries_up='3'
+  uci set omr-tracker.defaults.count='2'
   uci set omr-tracker.proxy.enabled='1'
+  uci set omr-tracker.proxy.interval='10'
+  uci set omr-tracker.proxy.timeout='5'
   uci set omr-tracker.server.enabled='1'
+  uci set omr-tracker.server.interval='10'
+  uci set omr-tracker.server.timeout='5'
 
   sysctl -w net.mptcp.scheduler="$SCHED" >/dev/null 2>&1 || true
   sysctl -w net.mptcp.enabled=1 >/dev/null 2>&1 || true
@@ -1298,6 +1429,7 @@ case "$A" in
               printf '{"ok":true,"local":"%s","remote":"%s","update_available":%s}' \
                 "$LOCAL_VER" "$_r" "$([ -n "$_r" ] && [ "$_r" != "$LOCAL_VER" ] && echo true || echo false)" ;;
   update)     do_update ;;
+  sysinfo)    sysinfo_json ;;
   config)     config_json ;;
   setserver)  set_server ;;
   setwan)     set_wan ;;
