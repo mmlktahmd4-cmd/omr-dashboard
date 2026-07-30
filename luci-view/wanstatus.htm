@@ -547,6 +547,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     <h3>مواصفات الجهاز</h3>
     <div class="oc-body">
       <div class="dv-usage">
+        <div class="dv-usebox" id="dv-cpu"></div>
         <div class="dv-usebox" id="dv-mem"></div>
         <div class="dv-usebox" id="dv-disk"></div>
       </div>
@@ -987,14 +988,18 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
   function fmtUptime(s){ s=parseInt(s||0,10); var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60); var o=''; if(d)o+=d+'ي '; if(h||d)o+=h+'س '; return o+m+'د'; }
   function fmtKB(kb){ kb=parseInt(kb||0,10); if(kb>=1048576) return (kb/1048576).toFixed(1)+' GB'; if(kb>=1024) return (kb/1024).toFixed(0)+' MB'; return kb+' KB'; }
   function usageBar(used,total){ used=parseInt(used||0,10); total=parseInt(total||0,10); var p=total>0?Math.round(used*100/total):0; if(p>100)p=100; var cls=p>=90?'bad':(p>=70?'warn':'ok'); return '<div class="dv-bar"><span class="'+cls+'" style="width:'+p+'%"></span></div><div class="dv-barlbl">'+p+'%</div>'; }
+  function usageBarPct(p){ p=parseInt(p||0,10); if(isNaN(p)||p<0)p=0; if(p>100)p=100; var cls=p>=90?'bad':(p>=70?'warn':'ok'); return '<div class="dv-bar"><span class="'+cls+'" style="width:'+p+'%"></span></div><div class="dv-barlbl">'+p+'%</div>'; }
+  var _sysTimer=null;
   function loadSysinfo(tries){
     if(tries==null) tries=3;
-    $('dv-specs').innerHTML='جاري القراءة…';
+    if(!$('dv-specs').dataset.ready) $('dv-specs').innerHTML='جاري القراءة…';
     api('sysinfo').then(function(d){
       if(!d||!d.ok){
         if(tries>0){ setTimeout(function(){ loadSysinfo(tries-1); }, 1500); return; }
         $('dv-specs').innerHTML='<p>تعذّر جلب المواصفات — اضغط «تحديث القراءة»</p>'; return;
       }
+      var cp=parseInt(d.cpu_pct,10); if(isNaN(cp)) cp=0;
+      if($('dv-cpu')) $('dv-cpu').innerHTML='<div class="dv-usehdr">المعالج (لحظي): <b>'+cp+'%</b></div>'+usageBarPct(cp);
       $('dv-mem').innerHTML='<div class="dv-usehdr">الذاكرة: '+fmtKB(d.mem_used)+' / '+fmtKB(d.mem_total)+'</div>'+usageBar(d.mem_used,d.mem_total);
       $('dv-disk').innerHTML='<div class="dv-usehdr">القرص (/): '+fmtKB(d.disk_used)+' / '+fmtKB(d.disk_total)+'</div>'+usageBar(d.disk_used,d.disk_total);
       var cpu=(d.cpu||'—'); if(d.cores) cpu+=' × '+d.cores; if(d.mhz) cpu+=' @ '+d.mhz+'MHz';
@@ -1005,6 +1010,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
         ['النواة', d.kernel||'—'],
         ['المعمارية', d.arch||'—'],
         ['المعالج', cpu],
+        ['استخدام المعالج', (d.cpu_pct!=null && d.cpu_pct!=='')?(d.cpu_pct+'%'):'—'],
         ['متوسط الحِمل', d.load||'—'],
         ['مدة التشغيل', fmtUptime(d.uptime)],
         ['الحرارة', d.temp? (d.temp+'°C'):'—'],
@@ -1016,7 +1022,16 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       rows.forEach(function(r){ html+='<tr><th>'+r[0]+'</th><td>'+String(r[1])+'</td></tr>'; });
       html+='</tbody></table>';
       $('dv-specs').innerHTML=html;
+      $('dv-specs').dataset.ready='1';
       $('dv-curVer').textContent=d.dash_version||'—';
+      if(!$('panel-device').classList.contains('active')){
+        if(_sysTimer){ clearInterval(_sysTimer); _sysTimer=null; }
+      } else if(!_sysTimer){
+        _sysTimer=setInterval(function(){
+          if($('panel-device').classList.contains('active')) loadSysinfo(0);
+          else { clearInterval(_sysTimer); _sysTimer=null; }
+        }, 5000);
+      }
     }).catch(function(){
       if(tries>0){ setTimeout(function(){ loadSysinfo(tries-1); }, 1500); return; }
       $('dv-specs').innerHTML='<p>تعذّر الاتصال بالجهاز — اضغط «تحديث القراءة»</p>';

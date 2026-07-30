@@ -374,6 +374,24 @@ sysinfo_json() {
   _cores=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null); [ -z "$_cores" ] || [ "$_cores" = "0" ] && _cores=1
   _mhz=$(sed -n 's/^cpu MHz[[:space:]]*: *\([0-9]*\).*/\1/p' /proc/cpuinfo | head -1)
 
+  # استخدام المعالج اللحظي من /proc/stat (عينة مزدوجة ~0.5ث)
+  _cpu_pct=""
+  _s1=$(awk '/^cpu /{print $2+0,$3+0,$4+0,$5+0,$6+0,$7+0,$8+0; exit}' /proc/stat 2>/dev/null)
+  sleep 0.5 2>/dev/null || sleep 1
+  _s2=$(awk '/^cpu /{print $2+0,$3+0,$4+0,$5+0,$6+0,$7+0,$8+0; exit}' /proc/stat 2>/dev/null)
+  if [ -n "$_s1" ] && [ -n "$_s2" ]; then
+    set -- $_s1; _u1=$1; _n1=$2; _sy1=$3; _i1=$4; _w1=$5; _irq1=$6; _sirq1=$7
+    set -- $_s2; _u2=$1; _n2=$2; _sy2=$3; _i2=$4; _w2=$5; _irq2=$6; _sirq2=$7
+    _t1=$((_u1+_n1+_sy1+_i1+_w1+_irq1+_sirq1))
+    _t2=$((_u2+_n2+_sy2+_i2+_w2+_irq2+_sirq2))
+    _dt=$((_t2-_t1)); _di=$((_i2-_i1))
+    if [ "$_dt" -gt 0 ] 2>/dev/null; then
+      _cpu_pct=$(( (100*(_dt-_di))/_dt ))
+      [ "$_cpu_pct" -lt 0 ] 2>/dev/null && _cpu_pct=0
+      [ "$_cpu_pct" -gt 100 ] 2>/dev/null && _cpu_pct=100
+    fi
+  fi
+
   _load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)
   _up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1); [ -z "$_up" ] && _up=0
 
@@ -407,6 +425,7 @@ sysinfo_json() {
   printf '"cpu":%s,' "$(json_str "$_cpu")"
   printf '"cores":%s,' "${_cores:-1}"
   printf '"mhz":"%s",' "$_mhz"
+  printf '"cpu_pct":"%s",' "$_cpu_pct"
   printf '"load":"%s",' "$_load"
   printf '"uptime":%s,' "${_up:-0}"
   printf '"mem_total":%s,"mem_used":%s,"mem_avail":%s,' "$_memt" "$_memu" "$_mema"
