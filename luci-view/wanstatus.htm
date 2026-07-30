@@ -966,12 +966,14 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     return api('version').then(function(d){
       $('oc-curVer').textContent=d.local||'—';
       $('oc-remoteVer').textContent=d.remote||'؟';
-      var avail = !!(d.update_available || (d.remote && d.local && d.remote!==d.local));
+      var avail = !!(d.update_available || d.newer);
       if($('oc-updMsg')){
-        if(!d.remote) $('oc-updMsg').textContent='تعذّر الوصول إلى GitHub — جرّب تحديث الآن لاحقاً.';
+        if(!d.remote) $('oc-updMsg').textContent='تعذّر الوصول لمصادر التحديث — جرّب لاحقاً.';
+        else if(d.older_remote) $('oc-updMsg').textContent='مرآة قديمة متجاهَلة — جهازك أحدث ('+d.local+') من بعض المصادر. الأحدث المتاح: '+d.remote;
         else if(avail) $('oc-updMsg').textContent='تحديث متوفر: '+d.remote+' (الحالي '+d.local+')';
-        else $('oc-updMsg').textContent='أنت على أحدث إصدار.';
+        else $('oc-updMsg').textContent='أنت على أحدث إصدار ('+d.local+').';
       }
+      if($('oc-update')) $('oc-update').disabled = !avail;
       if(!silent){
         if(avail) toast('تحديث متوفر: '+d.remote);
         else if(d.remote) toast('أحدث إصدار');
@@ -1026,10 +1028,12 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     return api('version').then(function(d){
       $('dv-curVer').textContent=d.local||'—';
       $('dv-remoteVer').textContent=d.remote||'؟';
-      var avail=!!(d.update_available||(d.remote&&d.local&&d.remote!==d.local));
-      if(!d.remote) $('dv-updMsg').textContent='تعذّر الوصول إلى GitHub — جرّب لاحقاً.';
+      var avail=!!(d.update_available||d.newer);
+      if(!d.remote) $('dv-updMsg').textContent='تعذّر الوصول لمصادر التحديث — جرّب لاحقاً.';
+      else if(d.older_remote) $('dv-updMsg').textContent='مرآة قديمة متجاهَلة — جهازك أحدث ('+d.local+'). الأحدث المتاح: '+d.remote;
       else if(avail) $('dv-updMsg').textContent='تحديث متوفر: '+d.remote+' (الحالي '+d.local+')';
-      else $('dv-updMsg').textContent='أنت على أحدث إصدار.';
+      else $('dv-updMsg').textContent='أنت على أحدث إصدار ('+d.local+').';
+      if($('dv-update')) $('dv-update').disabled = !avail;
       if(!silent){ if(avail) toast('تحديث متوفر: '+d.remote); else if(d.remote) toast('أحدث إصدار'); }
       return d;
     }).catch(function(){ $('dv-remoteVer').textContent='فشل'; $('dv-updMsg').textContent='فشل التحقق من التحديثات'; });

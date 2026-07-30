@@ -44,17 +44,85 @@ fetch() {
   if command -v curl >/dev/null 2>&1; then curl -4 -fsSL -m 20 "$1"
   else uclient-fetch -q -T 20 -O - "$1"; fi
 }
-# نجلب من GitHub أولاً (المصدر الأحدث)، ثم jsDelivr، ثم مِرآة الـVPS كملاذ أخير.
-# مِرآة الـVPS قد تتأخّر في المزامنة فنجعلها آخر خيار حتى لا نجلب نسخة قديمة.
-ota_get() {
-  # $1 = relative path e.g. VERSION or install.sh
-  _rel="$1"
+
+# مقارنة إصدارات: 2.1.0 > 1.7.9  (يمنع الرجوع لنسخة أقدم)
+ver_parts() {
+  # يطبع 3 أرقام مفصولة بمسافة من نص مثل 2.1.0 أو v2.1.0-beta
+  printf '%s' "$1" | tr -cd '0-9.' | awk -F. '{
+    a=$1+0; b=$2+0; c=$3+0;
+    printf "%d %d %d", a, b, c
+  }'
+}
+ver_cmp() {
+  # يرجع: 1 إذا $1>$2 ، 0 إذا تساويا ، -1 إذا $1<$2
+  set -- $(ver_parts "$1") $(ver_parts "$2")
+  # $1 $2 $3 = left ، $4 $5 $6 = right
+  [ "$1" -gt "$4" ] 2>/dev/null && { echo 1; return; }
+  [ "$1" -lt "$4" ] 2>/dev/null && { echo -1; return; }
+  [ "$2" -gt "$5" ] 2>/dev/null && { echo 1; return; }
+  [ "$2" -lt "$5" ] 2>/dev/null && { echo -1; return; }
+  [ "$3" -gt "$6" ] 2>/dev/null && { echo 1; return; }
+  [ "$3" -lt "$6" ] 2>/dev/null && { echo -1; return; }
+  echo 0
+}
+ver_gt()  { [ "$(ver_cmp "$1" "$2")" = "1" ]; }
+ver_gte() { _c=$(ver_cmp "$1" "$2"); [ "$_c" = "1" ] || [ "$_c" = "0" ]; }
+ver_lt()  { [ "$(ver_cmp "$1" "$2")" = "-1" ]; }
+
+# يختار مصدر OTA صاحب أعلى رقم إصدار (يتجاهل المرايا القديمة مثل VPS@1.7.9)
+ota_resolve() {
+  # يضبط: OTA_BEST_BASE, OTA_BEST_VER
+  OTA_BEST_BASE=""; OTA_BEST_VER="0"
+  _probe=""
   for _base in "$OTA_GITHUB" "$OTA_JSDELIVR" "$OTA_VPS"; do
-    if fetch "$_base/$_rel" 2>/dev/null; then
-      return 0
+    _v=$(fetch "$_base/VERSION" 2>/dev/null | tr -d ' \r\n')
+    [ -z "$_v" ] && continue
+    _probe="${_probe}${_probe:+, }${_base##*/}=$_v"
+    if ver_gt "$_v" "$OTA_BEST_VER" || [ -z "$OTA_BEST_BASE" ]; then
+      # عند التساوي نفضّل ما اختير أولاً (GitHub ثم CDN ثم VPS)
+      if [ -z "$OTA_BEST_BASE" ] || ver_gt "$_v" "$OTA_BEST_VER"; then
+        OTA_BEST_VER="$_v"
+        OTA_BEST_BASE="$_base"
+      fi
     fi
   done
+  OTA_PROBE="$_probe"
+  [ -n "$OTA_BEST_BASE" ]
+}
+
+ota_get() {
+  # $1 = relative path — يجلب من أحدث مصدر فقط (لا من مرآة قديمة)
+  _rel="$1"
+  if [ -z "$OTA_BEST_BASE" ]; then
+    ota_resolve || return 1
+  fi
+  if [ -n "$OTA_BEST_BASE" ]; then
+    fetch "$OTA_BEST_BASE/$_rel" 2>/dev/null && return 0
+  fi
+  # احتياطي: جرّب الباقي بالترتيب لكن لن نستخدمه لـ VERSION القديمة في التحديث
+  for _base in "$OTA_GITHUB" "$OTA_JSDELIVR" "$OTA_VPS"; do
+    [ "$_base" = "$OTA_BEST_BASE" ] && continue
+    fetch "$_base/$_rel" 2>/dev/null && return 0
+  done
   return 1
+}
+version_json() {
+  LOCAL_VER=$(cat "$VER_FILE" 2>/dev/null | tr -d ' \r\n'); [ -z "$LOCAL_VER" ] && LOCAL_VER="0"
+  OTA_BEST_BASE=""; OTA_BEST_VER=""
+  if ! ota_resolve; then
+    printf '{"ok":true,"local":"%s","remote":"","update_available":false,"newer":false,"older_remote":false,"source":"","sources":%s}' \
+      "$LOCAL_VER" "$(json_str "${OTA_PROBE:-}")"
+    return
+  fi
+  _avail=false; _newer=false; _older=false
+  if ver_gt "$OTA_BEST_VER" "$LOCAL_VER"; then
+    _avail=true; _newer=true
+  elif ver_lt "$OTA_BEST_VER" "$LOCAL_VER"; then
+    _older=true
+  fi
+  printf '{"ok":true,"local":"%s","remote":"%s","update_available":%s,"newer":%s,"older_remote":%s,"source":%s,"sources":%s}' \
+    "$LOCAL_VER" "$OTA_BEST_VER" "$_avail" "$_newer" "$_older" \
+    "$(json_str "$OTA_BEST_BASE")" "$(json_str "${OTA_PROBE:-}")"
 }
 fetch_insecure() {
   if command -v curl >/dev/null 2>&1; then curl -fskL -m 20 "$@"
@@ -1233,9 +1301,30 @@ do_update() {
   SCRIPT=/tmp/omr-ota-install.sh
   LOGF=/tmp/omr-ota.log
   rm -f "$SCRIPT" "$LOGF"
+  LOCAL_VER=$(cat "$VER_FILE" 2>/dev/null | tr -d ' \r\n'); [ -z "$LOCAL_VER" ] && LOCAL_VER="0"
   OLD="$LOCAL_VER"
-  if ! ota_get "install.sh" > "$SCRIPT" 2>"$LOGF"; then
-    err_json "download failed (VPS+GitHub)" ",\"log\":$(json_str "$(cat "$LOGF" 2>/dev/null)")"
+  FORCE=$(qget force)
+
+  OTA_BEST_BASE=""; OTA_BEST_VER=""
+  if ! ota_resolve; then
+    err_json "تعذّر الوصول لأي مصدر تحديث (GitHub/CDN/VPS)"
+    return
+  fi
+
+  # منع الرجوع لنسخة أقدم (مثل مرآة VPS العالقة على 1.7.9)
+  if ver_lt "$OTA_BEST_VER" "$OLD"; then
+    err_json "رفض التخفيض: المصدر الأحدث ($OTA_BEST_VER) أقدم من جهازك ($OLD) — المرآة متأخرة" \
+      ",\"local\":\"$OLD\",\"remote\":\"$OTA_BEST_VER\",\"source\":$(json_str "$OTA_BEST_BASE"),\"sources\":$(json_str "${OTA_PROBE:-}")"
+    return
+  fi
+  if [ "$OTA_BEST_VER" = "$OLD" ] && [ "$FORCE" != "1" ]; then
+    err_json "أنت على أحدث إصدار ($OLD)" \
+      ",\"local\":\"$OLD\",\"remote\":\"$OTA_BEST_VER\",\"source\":$(json_str "$OTA_BEST_BASE")"
+    return
+  fi
+
+  if ! fetch "$OTA_BEST_BASE/install.sh" > "$SCRIPT" 2>"$LOGF"; then
+    err_json "فشل تنزيل install.sh من المصدر الأحدث" ",\"source\":$(json_str "$OTA_BEST_BASE"),\"log\":$(json_str "$(cat "$LOGF" 2>/dev/null)")"
     return
   fi
   if [ ! -s "$SCRIPT" ]; then
@@ -1243,19 +1332,28 @@ do_update() {
   fi
   sed -i 's/\r$//' "$SCRIPT" 2>/dev/null || true
   chmod +x "$SCRIPT"
-  # Prefer VPS mirror inside installer too
+  # أجبر المثبّت على الجلب من نفس المصدر الأحدث فقط
+  export OMR_OTA_BASE="$OTA_BEST_BASE"
   export OMR_OTA_VPS="$OTA_VPS"
+  export OMR_EXPECT_VER="$OTA_BEST_VER"
   sh "$SCRIPT" >"$LOGF" 2>&1
   RC=$?
   NEW=$(cat "$VER_FILE" 2>/dev/null | tr -d ' \r\n')
   [ -z "$NEW" ] && NEW="$OLD"
+  # إن انخفض الإصدار بعد التثبيت = فشل (مرآة قديمة تسرّبت)
+  if ver_lt "$NEW" "$OLD"; then
+    err_json "تم منع/اكتشاف تخفيض الإصدار بعد التثبيت ($OLD → $NEW)" \
+      ",\"version\":\"$NEW\",\"old\":\"$OLD\",\"log\":$(json_str "$(tail -c 1500 "$LOGF" 2>/dev/null)")"
+    return
+  fi
   if [ "$RC" -ne 0 ] && [ "$NEW" = "$OLD" ]; then
     err_json "update failed" ",\"version\":\"$NEW\",\"log\":$(json_str "$(tail -c 1500 "$LOGF" 2>/dev/null)")"
     return
   fi
   rm -rf /tmp/luci-* /tmp/luci-indexcache* 2>/dev/null || true
   /etc/init.d/uhttpd reload >/dev/null 2>&1 || true
-  printf '{"ok":true,"a":"update","version":"%s","old":"%s","log":%s}' "$NEW" "$OLD" "$(json_str "$(tail -c 1200 "$LOGF" 2>/dev/null)")"
+  printf '{"ok":true,"a":"update","version":"%s","old":"%s","source":%s,"log":%s}' \
+    "$NEW" "$OLD" "$(json_str "$OTA_BEST_BASE")" "$(json_str "$(tail -c 1200 "$LOGF" 2>/dev/null)")"
 }
 
 # ---------- set WAN / broadband ----------
@@ -1693,9 +1791,7 @@ case "$A" in
               _lat=$(ping_ms "$TUN_PEER")
               [ -z "$_lat" ] && _lat=$(ping_ms 1.1.1.1)
               printf '{"ok":true,"exit_ip":"%s","lat":"%s"}' "$_e" "$_lat" ;;
-  version)    _r=$(ota_get VERSION 2>/dev/null | tr -d ' \r\n')
-              printf '{"ok":true,"local":"%s","remote":"%s","update_available":%s}' \
-                "$LOCAL_VER" "$_r" "$([ -n "$_r" ] && [ "$_r" != "$LOCAL_VER" ] && echo true || echo false)" ;;
+  version)    version_json ;;
   update)     do_update ;;
   sysinfo)    sysinfo_json ;;
   config)     config_json ;;
