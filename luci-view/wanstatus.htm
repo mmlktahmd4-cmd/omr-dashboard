@@ -1340,6 +1340,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
       if(!d||!d.ok){ if(box) box.innerHTML='<div class="oc-alert bad"><b>فشل</b>تعذّر قراءة الأقراص</div>'; return; }
       if(sum){
         sum.innerHTML='مصدر الإقلاع: <b>'+(d.boot||'—')+'</b> ('+(d.boot_size_h||'—')+')'
+          +(d.copy_size_h?(' · حجم النسخ الفعلي: <b>'+d.copy_size_h+'</b>'):'')
           +' · المعمارية: <b>'+(d.arch||'—')+'</b>'
           +' · وضع الإقلاع: <b>'+(d.uefi?'UEFI':'BIOS/Legacy')+'</b>';
       }
@@ -1368,7 +1369,7 @@ local menuentry = ucic:get("openmptcprouter","settings","menu") or "Connect"
     if(prog) prog.style.display='block';
     var pct=parseInt(d.pct||0,10); if(isNaN(pct)) pct=0;
     if($('cl-bar')) $('cl-bar').style.width=pct+'%';
-    if($('cl-pct')) $('cl-pct').textContent=pct+'%';
+    if($('cl-pct')) $('cl-pct').textContent=pct+'%'+(d.copied_h&&d.total_h?(' · '+d.copied_h+' / '+d.total_h):'');
     if($('cl-msg')) $('cl-msg').textContent=d.msg||d.status||'—';
     if($('cl-log') && d.log) $('cl-log').textContent=d.log;
     if(done) done.style.display=(d.status==='done')?'block':'none';
